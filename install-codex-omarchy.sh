@@ -29,6 +29,12 @@ Options:
 EOF
 }
 
+INSTALLER_PATH="${BASH_SOURCE[0]}"
+case "$INSTALLER_PATH" in
+  */*) INSTALLER_DIR="$(cd "${INSTALLER_PATH%/*}" && pwd)" ;;
+  *) INSTALLER_DIR="$(pwd)" ;;
+esac
+
 PREFLIGHT_ONLY=0
 NO_INSTALL_DEPS=0
 FORCE_DOWNLOAD=0
@@ -295,18 +301,46 @@ OPENAI_ICON_URL="https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/ope
 DESKTOP_ICON_NAME="codex-openai"
 DESKTOP_ICON_FALLBACK="codex"
 
+find_python_bin() {
+  if [ -x /usr/bin/python ]; then
+    printf '%s\n' /usr/bin/python
+  elif command -v python3 >/dev/null 2>&1; then
+    command -v python3
+  elif command -v python >/dev/null 2>&1; then
+    command -v python
+  else
+    return 1
+  fi
+}
+
+patch_codex_linux_open_targets() {
+  echo
+  echo "=== [3b] Linux open-target menu patch ==="
+
+  local patcher="$INSTALLER_DIR/scripts/patch_codex_linux_open_targets.py"
+  if [ ! -f "$patcher" ]; then
+    echo "WARNING: Linux open-target patcher was not found at $patcher; continuing without the editor-picker fix." >&2
+    return 0
+  fi
+
+  local python_bin=""
+  if ! python_bin="$(find_python_bin)"; then
+    echo "WARNING: could not patch Codex Linux open targets because Python was not found; continuing without the editor-picker fix." >&2
+    return 0
+  fi
+
+  if ! "$python_bin" "$patcher" "$ROOT_APP_DIR/app_asar"; then
+    echo "WARNING: could not patch Codex Linux open targets; continuing without the editor-picker fix." >&2
+    return 0
+  fi
+}
+
 seed_opaque_chrome_defaults() {
   echo
   echo "=== [8] Codex Linux rendering defaults ==="
 
   local python_bin=""
-  if [ -x /usr/bin/python ]; then
-    python_bin="/usr/bin/python"
-  elif command -v python3 >/dev/null 2>&1; then
-    python_bin="$(command -v python3)"
-  elif command -v python >/dev/null 2>&1; then
-    python_bin="$(command -v python)"
-  fi
+  python_bin="$(find_python_bin || true)"
 
   if [ -z "$python_bin" ]; then
     echo "WARNING: could not seed Codex opaque sidebar defaults because Python was not found." >&2
@@ -724,6 +758,8 @@ echo "Found app.asar: $APP_ASAR_PATH"
 mkdir -p "$ROOT_APP_DIR/app_asar"
 echo "Extracting app.asar into the app_asar directory (through pnpm dlx asar)..."
 "$PNPM_BIN" dlx asar extract "$APP_ASAR_PATH" "$ROOT_APP_DIR/app_asar"
+
+patch_codex_linux_open_targets
 
 echo
 echo "=== [4] Rebuild native modules (better-sqlite3, node-pty) through pnpm ==="

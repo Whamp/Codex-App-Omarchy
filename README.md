@@ -45,6 +45,7 @@ The installer performs the required setup work:
 - cleans stale extraction and native-build working directories on reruns
 - extracts `app.asar` into `~/apps/codex-port/app_asar`
 - rebuilds `better-sqlite3` and `node-pty` for the installed Electron version, preferring `/usr/bin/python` for native build commands when available
+- patches Codex's Linux open-target registry so the project toolbar menu can list installed editors such as VS Code, Cursor, Zed, Antigravity, JetBrains IDEs, Sublime Text, terminal editors such as Neovim/Vim when a terminal emulator is available, and a file manager fallback instead of rendering an empty dropdown
 - generates `~/apps/codex-port/run-codex.sh` with absolute Electron and Codex CLI defaults
 - seeds Codex's own Linux appearance state so missing sidebar translucency preferences default to opaque rendering, without overriding an explicit user preference
 
@@ -143,6 +144,7 @@ Run the lightweight shell baseline before submitting changes:
 ./tests/native_rebuild.sh
 ./tests/cli_launcher.sh
 ./tests/desktop_entry.sh
+./tests/linux_open_targets_patch.sh
 ```
 
 The smoke test checks that the canonical installer exists, the installer parses with `bash -n`, help output is available, README usage references the canonical script name, required README flags are documented, attribution is present, and README text stays ASCII English-only.

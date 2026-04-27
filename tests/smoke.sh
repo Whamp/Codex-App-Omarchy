@@ -4,6 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 installer="$repo_root/install-codex-omarchy.sh"
 readme="$repo_root/README.md"
+linux_open_targets_patcher="$repo_root/scripts/patch_codex_linux_open_targets.py"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -11,8 +12,10 @@ fail() {
 }
 
 [ -f "$installer" ] || fail "canonical installer install-codex-omarchy.sh is missing"
+[ -f "$linux_open_targets_patcher" ] || fail "Linux open-target patcher is missing"
 
 bash -n "$installer"
+python3 -m py_compile "$linux_open_targets_patcher"
 
 help_output="$(bash "$installer" --help)"
 [[ "$help_output" == *"install-codex-omarchy.sh"* ]] || fail "help output must mention canonical installer name"
@@ -35,6 +38,7 @@ grep -q 'Wayland/Electron troubleshooting' "$readme" || fail "README must docume
 grep -q 'opt-in' "$readme" || fail "README must say Wayland/Electron troubleshooting is opt-in"
 grep -q 'translucent sidebar' "$readme" || fail "README must document the Codex translucent sidebar workaround"
 grep -q 'opaque rendering' "$readme" || fail "README must document the opaque rendering default"
+grep -q 'open-target registry' "$readme" || fail "README must document the Linux open-target patch"
 grep -q 'Homarr Labs dashboard-icons' "$readme" || fail "README must attribute Homarr Labs dashboard-icons"
 grep -q 'Apache-2.0' "$readme" || fail "README must note dashboard-icons Apache-2.0 license"
 grep -q 'Optional Omarchy niceties' "$readme" || fail "README must distinguish optional Omarchy niceties"
