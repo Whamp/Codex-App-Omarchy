@@ -366,13 +366,16 @@ write_launcher() {
   local codex_default="${2:-}"
   local browser_node_default="${3:-}"
   local node_repl_default="${4:-}"
+  local electron_resources_default="${5:-}"
   local electron_default_quoted
   local codex_default_quoted
   local browser_node_default_quoted
   local node_repl_default_quoted
+  local electron_resources_default_quoted
   electron_default_quoted="$(shell_quote "$electron_default")"
   browser_node_default_quoted="$(shell_quote "$browser_node_default")"
   node_repl_default_quoted="$(shell_quote "$node_repl_default")"
+  electron_resources_default_quoted="$(shell_quote "$electron_resources_default")"
 
   if [ -n "$codex_default" ]; then
     codex_default_quoted="$(shell_quote "$codex_default")"
@@ -385,6 +388,14 @@ APP_DIR="\$ROOT_DIR/app_asar"
 
 export ELECTRON_FORCE_IS_PACKAGED=1
 export NODE_ENV=production
+
+CODEX_ELECTRON_RESOURCES_PATH="\${CODEX_ELECTRON_RESOURCES_PATH:-}"
+if [ -z "\$CODEX_ELECTRON_RESOURCES_PATH" ]; then
+  CODEX_ELECTRON_RESOURCES_PATH=$electron_resources_default_quoted
+fi
+if [ -n "\$CODEX_ELECTRON_RESOURCES_PATH" ]; then
+  export CODEX_ELECTRON_RESOURCES_PATH
+fi
 
 ELECTRON_BIN="\${ELECTRON_BIN:-}"
 if [ -z "\$ELECTRON_BIN" ]; then
@@ -424,6 +435,14 @@ APP_DIR="\$ROOT_DIR/app_asar"
 
 export ELECTRON_FORCE_IS_PACKAGED=1
 export NODE_ENV=production
+
+CODEX_ELECTRON_RESOURCES_PATH="\${CODEX_ELECTRON_RESOURCES_PATH:-}"
+if [ -z "\$CODEX_ELECTRON_RESOURCES_PATH" ]; then
+  CODEX_ELECTRON_RESOURCES_PATH=$electron_resources_default_quoted
+fi
+if [ -n "\$CODEX_ELECTRON_RESOURCES_PATH" ]; then
+  export CODEX_ELECTRON_RESOURCES_PATH
+fi
 
 ELECTRON_BIN="\${ELECTRON_BIN:-}"
 if [ -z "\$ELECTRON_BIN" ]; then
@@ -495,6 +514,25 @@ patch_codex_linux_open_targets() {
     echo "WARNING: could not patch Codex Linux open targets; continuing without the editor-picker fix." >&2
     return 0
   fi
+}
+
+copy_bundled_plugin_resources() {
+  local source_resources_dir="$1"
+  local target_resources_dir="$ROOT_APP_DIR/resources"
+
+  echo
+  echo "=== [3c] Bundled plugin resources ==="
+
+  rm -rf "$target_resources_dir"
+  mkdir -p "$target_resources_dir"
+
+  if [ ! -d "$source_resources_dir/plugins" ]; then
+    echo "WARNING: Codex bundled plugin resources were not found at $source_resources_dir/plugins; browser plugin auto-install may be unavailable." >&2
+    return 0
+  fi
+
+  cp -a "$source_resources_dir/plugins" "$target_resources_dir/plugins"
+  echo "Copied bundled plugin resources to: $target_resources_dir/plugins"
 }
 
 seed_opaque_chrome_defaults() {
@@ -901,7 +939,7 @@ cd "$ROOT_APP_DIR"
 # Reruns should preserve the cached DMG but remove stale extraction output from
 # previous partial or failed runs before discovering app.asar again.
 echo "Cleaning extracted app and native-build working directories before re-extraction..."
-rm -rf "$ROOT_APP_DIR/dmg_extracted" "$ROOT_APP_DIR/app_asar" "$ROOT_APP_DIR/_better-sqlite3-build" "$ROOT_APP_DIR/_native-build"
+rm -rf "$ROOT_APP_DIR/dmg_extracted" "$ROOT_APP_DIR/app_asar" "$ROOT_APP_DIR/resources" "$ROOT_APP_DIR/_better-sqlite3-build" "$ROOT_APP_DIR/_native-build"
 
 echo "Extracting Codex.dmg with 7z (auto overwrite - yes to all)..."
 7z x -y -aoa "$HOME/Downloads/codex-macos/Codex.dmg" -o./dmg_extracted
@@ -916,12 +954,14 @@ if [ -z "${APP_ASAR_PATH:-}" ]; then
 fi
 
 echo "Found app.asar: $APP_ASAR_PATH"
+APP_RESOURCES_DIR="$(cd "$(dirname "$APP_ASAR_PATH")" && pwd)"
 
 mkdir -p "$ROOT_APP_DIR/app_asar"
 echo "Extracting app.asar into the app_asar directory (through pnpm dlx asar)..."
 "$PNPM_BIN" dlx asar extract "$APP_ASAR_PATH" "$ROOT_APP_DIR/app_asar"
 
 patch_codex_linux_open_targets
+copy_bundled_plugin_resources "$APP_RESOURCES_DIR"
 
 echo
 echo "=== [4] Rebuild native modules (better-sqlite3, node-pty) through pnpm ==="
@@ -1021,7 +1061,7 @@ fi
 
 echo
 echo "=== [7] run-codex.sh launcher for Codex ==="
-write_launcher "$ELECTRON_DEFAULT" "$CODEX_CLI_DEFAULT" "$BROWSER_USE_NODE_DEFAULT" "$NODE_REPL_DEFAULT"
+write_launcher "$ELECTRON_DEFAULT" "$CODEX_CLI_DEFAULT" "$BROWSER_USE_NODE_DEFAULT" "$NODE_REPL_DEFAULT" "$ROOT_APP_DIR/resources"
 
 echo
 if [ -n "$CODEX_CLI_DEFAULT" ]; then

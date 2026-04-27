@@ -54,6 +54,10 @@ for arg in "$@"; do case "$arg" in -o*) outdir="${arg#-o}" ;; esac; done
 [ -n "$outdir" ] || exit 1
 mkdir -p "$outdir/Codex.app/Contents/Resources"
 printf "fake-asar\n" > "$outdir/Codex.app/Contents/Resources/app.asar"
+mkdir -p "$outdir/Codex.app/Contents/Resources/plugins/openai-bundled/.agents/plugins"
+mkdir -p "$outdir/Codex.app/Contents/Resources/plugins/openai-bundled/plugins/browser-use/.codex-plugin"
+printf "{\"name\":\"openai-bundled\",\"plugins\":[{\"name\":\"browser-use\",\"source\":{\"source\":\"local\",\"path\":\"./plugins/browser-use\"}}]}\n" > "$outdir/Codex.app/Contents/Resources/plugins/openai-bundled/.agents/plugins/marketplace.json"
+printf "{\"name\":\"browser-use\",\"version\":\"0.1.0-alpha1\"}\n" > "$outdir/Codex.app/Contents/Resources/plugins/openai-bundled/plugins/browser-use/.codex-plugin/plugin.json"
 '
   make_fake "$fakebin" node '
 if [ "${1:-}" = "-v" ]; then echo "v22.0.0"; elif [ "${1:-}" = "-p" ]; then echo "12.5.0"; else echo "node $*" >>"$FAKE_LOG"; fi
@@ -62,7 +66,7 @@ if [ "${1:-}" = "-v" ]; then echo "v22.0.0"; elif [ "${1:-}" = "-p" ]; then echo
 if [ "${1:-}" = "--version" ]; then
   echo "v37.0.0"
 else
-  echo "electron $* CODEX_CLI_PATH=${CODEX_CLI_PATH:-} CODEX_BROWSER_USE_NODE_PATH=${CODEX_BROWSER_USE_NODE_PATH:-} CODEX_NODE_REPL_PATH=${CODEX_NODE_REPL_PATH:-}" >>"$FAKE_LOG"
+  echo "electron $* CODEX_CLI_PATH=${CODEX_CLI_PATH:-} CODEX_BROWSER_USE_NODE_PATH=${CODEX_BROWSER_USE_NODE_PATH:-} CODEX_NODE_REPL_PATH=${CODEX_NODE_REPL_PATH:-} CODEX_ELECTRON_RESOURCES_PATH=${CODEX_ELECTRON_RESOURCES_PATH:-}" >>"$FAKE_LOG"
 fi
 '
   make_fake "$fakebin" pnpm '
@@ -111,6 +115,8 @@ run_installer() {
 }
 
 bash -n "$installer"
+
+unset CODEX_CLI_PATH CODEX_BROWSER_USE_NODE_PATH CODEX_NODE_REPL_PATH CODEX_ELECTRON_RESOURCES_PATH
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -185,10 +191,14 @@ assert_file_contains "$runtime_log" "Using browser-use Node from PATH: $runtime_
 assert_file_contains "$runtime_log" "Using browser-use node_repl from Codex primary runtime: $runtime_node_repl"
 assert_file_contains "$runtime_home/apps/codex-port/run-codex.sh" "CODEX_BROWSER_USE_NODE_PATH=$runtime_bin/node"
 assert_file_contains "$runtime_home/apps/codex-port/run-codex.sh" "CODEX_NODE_REPL_PATH=$runtime_node_repl"
+assert_file_contains "$runtime_home/apps/codex-port/run-codex.sh" "CODEX_ELECTRON_RESOURCES_PATH=$runtime_home/apps/codex-port/resources"
+assert_file_contains "$runtime_home/apps/codex-port/resources/plugins/openai-bundled/.agents/plugins/marketplace.json" '"browser-use"'
+assert_file_contains "$runtime_home/apps/codex-port/resources/plugins/openai-bundled/plugins/browser-use/.codex-plugin/plugin.json" '"name":"browser-use"'
 runtime_run_log="$tmp/runtime-run.log"
 FAKE_LOG="$runtime_run_log" PATH="$runtime_bin:/usr/bin:/bin" "$runtime_home/apps/codex-port/run-codex.sh" || fail "runtime launcher run failed"
 assert_file_contains "$runtime_run_log" "CODEX_BROWSER_USE_NODE_PATH=$runtime_bin/node"
 assert_file_contains "$runtime_run_log" "CODEX_NODE_REPL_PATH=$runtime_node_repl"
+assert_file_contains "$runtime_run_log" "CODEX_ELECTRON_RESOURCES_PATH=$runtime_home/apps/codex-port/resources"
 
 # CLI installation failure is fatal by default and stops before launcher generation.
 fail_bin="$tmp/fail/bin"
