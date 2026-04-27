@@ -42,10 +42,6 @@ run_installer() {
 
 bash -n "$installer"
 
-if grep -Fq 'node-pty' "$installer" "$readme"; then
-  fail "installer output/docs must not claim node-pty rebuild support"
-fi
-
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 fakebin="$tmp/bin"
@@ -82,7 +78,10 @@ make_fake "$fakebin" node '
 if [ "${1:-}" = "-v" ]; then
   echo "v22.0.0"
 elif [ "${1:-}" = "-p" ]; then
-  echo "12.5.1"
+  case "${2:-}" in
+    *node-pty*) echo "1.1.0" ;;
+    *) echo "12.5.1" ;;
+  esac
 else
   echo "node $*" >>"$FAKE_LOG"
 fi
@@ -102,14 +101,30 @@ elif [ "${1:-}" = "dlx" ] && [ "${2:-}" = "asar" ] && [ "${3:-}" = "--version" ]
   echo "1.0.0"
 elif [ "${1:-}" = "dlx" ] && [ "${2:-}" = "asar" ] && [ "${3:-}" = "extract" ]; then
   dest="$5"
-  mkdir -p "$dest/node_modules/better-sqlite3"
+  mkdir -p "$dest/node_modules/better-sqlite3" "$dest/node_modules/node-pty"
   printf "{\"version\":\"12.5.1\"}\n" > "$dest/node_modules/better-sqlite3/package.json"
+  printf "{\"version\":\"1.1.0\"}\n" > "$dest/node_modules/node-pty/package.json"
 elif [ "${1:-}" = "add" ]; then
+  echo "pnpm-add $*" >>"$FAKE_LOG"
   echo "pnpm-add-env PYTHON=${PYTHON:-} npm_config_python=${npm_config_python:-}" >>"$FAKE_LOG"
-  mkdir -p node_modules/.pnpm/better-sqlite3@12.5.1/node_modules/better-sqlite3
-  printf "rebuilt\n" > node_modules/.pnpm/better-sqlite3@12.5.1/node_modules/better-sqlite3/native.node
-  ln -s .pnpm/better-sqlite3@12.5.1/node_modules/better-sqlite3 node_modules/better-sqlite3
+  for spec in "$@"; do
+    case "$spec" in
+      better-sqlite3@*)
+        version="${spec#better-sqlite3@}"
+        mkdir -p "node_modules/.pnpm/better-sqlite3@$version/node_modules/better-sqlite3"
+        printf "rebuilt\n" > "node_modules/.pnpm/better-sqlite3@$version/node_modules/better-sqlite3/native.node"
+        ln -s ".pnpm/better-sqlite3@$version/node_modules/better-sqlite3" node_modules/better-sqlite3
+        ;;
+      node-pty@*)
+        version="${spec#node-pty@}"
+        mkdir -p "node_modules/.pnpm/node-pty@$version/node_modules/node-pty"
+        printf "rebuilt\n" > "node_modules/.pnpm/node-pty@$version/node_modules/node-pty/pty.node"
+        ln -s ".pnpm/node-pty@$version/node_modules/node-pty" node_modules/node-pty
+        ;;
+    esac
+  done
 elif [ "${1:-}" = "dlx" ] && [ "${2:-}" = "electron-rebuild" ]; then
+  echo "electron-rebuild $*" >>"$FAKE_LOG"
   echo "electron-rebuild-env PYTHON=${PYTHON:-} npm_config_python=${npm_config_python:-}" >>"$FAKE_LOG"
   if [ "${FAKE_REBUILD_FAIL:-0}" = "1" ]; then
     echo "simulated rebuild failure" >&2
@@ -129,20 +144,25 @@ success_home="$tmp/success-home"
 log="$tmp/success.log"
 mkdir -p "$success_home"
 : > "$log"
-run_installer "$success_home" || fail "installer should succeed when better-sqlite3 rebuild succeeds"
+run_installer "$success_home" || fail "installer should succeed when native rebuild succeeds"
 assert_file_contains "$log" 'Reading Electron version'
 assert_file_contains "$log" 'Electron version: 37.2.3'
-assert_file_contains "$log" 'pnpm add better-sqlite3@12.5.1'
-assert_file_contains "$log" 'pnpm dlx electron-rebuild -v 37.2.3 -f -w better-sqlite3'
+assert_file_contains "$log" 'pnpm add better-sqlite3@12.5.1 node-pty@1.1.0'
+assert_file_contains "$log" 'pnpm dlx electron-rebuild -v 37.2.3 -f -w better-sqlite3 -w node-pty'
+assert_file_contains "$log" 'Reading the node-pty version from the Codex app'
+assert_file_contains "$log" 'node-pty was copied into app_asar/node_modules.'
 if [ -x /usr/bin/python ]; then
   assert_file_contains "$log" 'pnpm-add-env PYTHON=/usr/bin/python npm_config_python=/usr/bin/python'
   assert_file_contains "$log" 'electron-rebuild-env PYTHON=/usr/bin/python npm_config_python=/usr/bin/python'
 fi
-assert_file_not_contains "$log" 'node-pty'
 if [ -L "$success_home/apps/codex-port/app_asar/node_modules/better-sqlite3" ]; then
   fail "rebuilt better-sqlite3 must be copied as a real directory, not a pnpm symlink"
 fi
+if [ -L "$success_home/apps/codex-port/app_asar/node_modules/node-pty" ]; then
+  fail "rebuilt node-pty must be copied as a real directory, not a pnpm symlink"
+fi
 [ -f "$success_home/apps/codex-port/app_asar/node_modules/better-sqlite3/native.node" ] || fail "rebuilt better-sqlite3 native file was not copied into app_asar"
+[ -f "$success_home/apps/codex-port/app_asar/node_modules/node-pty/pty.node" ] || fail "rebuilt node-pty native file was not copied into app_asar"
 
 fatal_home="$tmp/fatal-home"
 log="$tmp/fatal.log"
@@ -151,7 +171,7 @@ mkdir -p "$fatal_home"
 if FAKE_REBUILD_FAIL=1 run_installer "$fatal_home"; then
   fail "rebuild failure must be fatal by default"
 fi
-assert_file_contains "$log" 'electron-rebuild failed for better-sqlite3'
+assert_file_contains "$log" 'electron-rebuild failed for native modules: better-sqlite3, node-pty'
 assert_file_contains "$log" 'Use --allow-rebuild-failure to continue anyway for experiments.'
 if [ -e "$fatal_home/apps/codex-port/run-codex.sh" ]; then
   fail "default rebuild failure should stop before launcher generation"
@@ -162,7 +182,7 @@ log="$tmp/override.log"
 mkdir -p "$override_home"
 : > "$log"
 FAKE_REBUILD_FAIL=1 run_installer "$override_home" --allow-rebuild-failure || fail "--allow-rebuild-failure should continue after rebuild failure"
-assert_file_contains "$log" 'WARNING: electron-rebuild failed for better-sqlite3'
+assert_file_contains "$log" 'WARNING: electron-rebuild failed for native modules: better-sqlite3, node-pty'
 assert_file_contains "$log" '--allow-rebuild-failure was set; continuing despite the native rebuild failure.'
 [ -x "$override_home/apps/codex-port/run-codex.sh" ] || fail "override should continue to launcher generation"
 

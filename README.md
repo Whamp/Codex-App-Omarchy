@@ -44,11 +44,11 @@ The installer performs the required setup work:
 - reuses the cached DMG on reruns by default
 - cleans stale extraction and native-build working directories on reruns
 - extracts `app.asar` into `~/apps/codex-port/app_asar`
-- rebuilds `better-sqlite3` for the installed Electron version, preferring `/usr/bin/python` for native build commands when available
+- rebuilds `better-sqlite3` and `node-pty` for the installed Electron version, preferring `/usr/bin/python` for native build commands when available
 - generates `~/apps/codex-port/run-codex.sh` with absolute Electron and Codex CLI defaults
 - seeds Codex's own Linux appearance state so missing sidebar translucency preferences default to opaque rendering, without overriding an explicit user preference
 
-The current native rebuild covers `better-sqlite3` only.
+The native rebuild covers `better-sqlite3` for Codex state storage and `node-pty` for the integrated terminal.
 
 ## Optional Omarchy niceties
 
@@ -108,7 +108,7 @@ Important flags:
 - `--no-install-deps`: report missing dependencies and exit before privileged package installation. This is useful when you want to install packages yourself.
 - `--skip-cli-install`: do not install `@openai/codex` when no working Codex CLI is found. If a working CLI is already discovered, it is still used. If no CLI is available, the generated launcher requires `CODEX_CLI_PATH` at launch time.
 - `--no-desktop-entry`: skip user-level desktop entry creation, icon download, and desktop database refresh integration.
-- `--allow-rebuild-failure`: continue after a `better-sqlite3` native rebuild failure for experiments. By default, rebuild failure is fatal.
+- `--allow-rebuild-failure`: continue after a native module rebuild failure for experiments. By default, rebuild failure is fatal.
 - `--force-download`: replace the cached `~/Downloads/codex-macos/Codex.dmg` before extraction. Use this to recover from a bad or stale cached download.
 
 ## Desktop entry and icon attribution

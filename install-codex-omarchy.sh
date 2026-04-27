@@ -17,7 +17,7 @@ Options:
                      package installation.
   --force-download   Replace the cached Codex.dmg before extraction.
   --allow-rebuild-failure
-                     Continue after a better-sqlite3 native rebuild failure
+                     Continue after a native module rebuild failure
                      for experiments. By default, rebuild failure is fatal.
   --skip-cli-install
                      Do not install @openai/codex when no working CLI is found.
@@ -612,7 +612,7 @@ echo "npm is diagnostic-only and is not required by preflight planning."
 if [ "$ARCH" != "x86_64" ]; then
   echo
   echo "WARNING: architecture is not x86_64 (detected: $ARCH)."
-  echo "Native modules such as better-sqlite3 may not build correctly."
+  echo "Native modules such as better-sqlite3 and node-pty may not build correctly."
 fi
 
 handle_dependency_plan
@@ -705,7 +705,7 @@ cd "$ROOT_APP_DIR"
 # Reruns should preserve the cached DMG but remove stale extraction output from
 # previous partial or failed runs before discovering app.asar again.
 echo "Cleaning extracted app and native-build working directories before re-extraction..."
-rm -rf "$ROOT_APP_DIR/dmg_extracted" "$ROOT_APP_DIR/app_asar" "$ROOT_APP_DIR/_better-sqlite3-build"
+rm -rf "$ROOT_APP_DIR/dmg_extracted" "$ROOT_APP_DIR/app_asar" "$ROOT_APP_DIR/_better-sqlite3-build" "$ROOT_APP_DIR/_native-build"
 
 echo "Extracting Codex.dmg with 7z (auto overwrite - yes to all)..."
 7z x -y -aoa "$HOME/Downloads/codex-macos/Codex.dmg" -o./dmg_extracted
@@ -726,7 +726,7 @@ echo "Extracting app.asar into the app_asar directory (through pnpm dlx asar)...
 "$PNPM_BIN" dlx asar extract "$APP_ASAR_PATH" "$ROOT_APP_DIR/app_asar"
 
 echo
-echo "=== [4] Rebuild native module (better-sqlite3) through pnpm ==="
+echo "=== [4] Rebuild native modules (better-sqlite3, node-pty) through pnpm ==="
 
 if [ -x /usr/bin/python ]; then
   export PYTHON=/usr/bin/python
@@ -748,8 +748,8 @@ fi
 echo "Electron version: $ELECTRON_VERSION"
 
 echo
-echo "Creating an isolated project to build better-sqlite3 for Electron (to avoid workspace issues and the partial package from the DMG)..."
-TMP_BUILD_DIR="$ROOT_APP_DIR/_better-sqlite3-build"
+echo "Creating an isolated project to build native modules for Electron (to avoid workspace issues and partial packages from the DMG)..."
+TMP_BUILD_DIR="$ROOT_APP_DIR/_native-build"
 rm -rf "$TMP_BUILD_DIR"
 mkdir -p "$TMP_BUILD_DIR"
 
@@ -757,21 +757,25 @@ echo "Reading the better-sqlite3 version from the Codex app..."
 BSQL_VERSION=$(node -p "require('$ROOT_APP_DIR/app_asar/node_modules/better-sqlite3/package.json').version" 2>/dev/null || echo "12.5.0")
 echo "better-sqlite3 version: $BSQL_VERSION"
 
+echo "Reading the node-pty version from the Codex app..."
+NODE_PTY_VERSION=$(node -p "require('$ROOT_APP_DIR/app_asar/node_modules/node-pty/package.json').version" 2>/dev/null || echo "1.1.0")
+echo "node-pty version: $NODE_PTY_VERSION"
+
 cd "$TMP_BUILD_DIR"
 echo "Creating a minimal package.json for the temporary project..."
 cat > package.json <<EOF
 {
-  "name": "better-sqlite3-electron-build",
+  "name": "codex-native-electron-build",
   "version": "1.0.0",
   "private": true
 }
 EOF
 
-pnpm add "better-sqlite3@$BSQL_VERSION"
+pnpm add "better-sqlite3@$BSQL_VERSION" "node-pty@$NODE_PTY_VERSION"
 
 echo
-echo "Rebuilding better-sqlite3 in the isolated project for Electron $ELECTRON_VERSION..."
-ELECTRON_REBUILD_CMD=("$PNPM_BIN" dlx electron-rebuild -v "$ELECTRON_VERSION" -f -w better-sqlite3)
+echo "Rebuilding native modules in the isolated project for Electron $ELECTRON_VERSION..."
+ELECTRON_REBUILD_CMD=("$PNPM_BIN" dlx electron-rebuild -v "$ELECTRON_VERSION" -f -w better-sqlite3 -w node-pty)
 echo "Command: ${ELECTRON_REBUILD_CMD[*]}"
 set +e
 "${ELECTRON_REBUILD_CMD[@]}"
@@ -780,24 +784,31 @@ set -e
 
 if [ "$REB_RES" -ne 0 ]; then
   if [ "$ALLOW_REBUILD_FAILURE" -eq 1 ]; then
-    echo "WARNING: electron-rebuild failed for better-sqlite3 (exit code $REB_RES)."
+    echo "WARNING: electron-rebuild failed for native modules: better-sqlite3, node-pty (exit code $REB_RES)."
     echo "--allow-rebuild-failure was set; continuing despite the native rebuild failure."
   else
-    echo "electron-rebuild failed for better-sqlite3 (exit code $REB_RES)." >&2
+    echo "electron-rebuild failed for native modules: better-sqlite3, node-pty (exit code $REB_RES)." >&2
     echo "Use --allow-rebuild-failure to continue anyway for experiments." >&2
     exit "$REB_RES"
   fi
 fi
 
-echo
-echo "Copying the rebuilt better-sqlite3 module into Codex app_asar..."
-if [ -d "$TMP_BUILD_DIR/node_modules/better-sqlite3" ]; then
-  rm -rf "$ROOT_APP_DIR/app_asar/node_modules/better-sqlite3"
-  cp -aL "$TMP_BUILD_DIR/node_modules/better-sqlite3" "$ROOT_APP_DIR/app_asar/node_modules/better-sqlite3"
-  echo "better-sqlite3 was copied into app_asar/node_modules."
-else
-  echo "WARNING: node_modules/better-sqlite3 was not found in the isolated project; skipping copy."
-fi
+copy_rebuilt_native_module() {
+  local module_name="$1"
+
+  echo
+  echo "Copying the rebuilt $module_name module into Codex app_asar..."
+  if [ -d "$TMP_BUILD_DIR/node_modules/$module_name" ]; then
+    rm -rf "$ROOT_APP_DIR/app_asar/node_modules/$module_name"
+    cp -aL "$TMP_BUILD_DIR/node_modules/$module_name" "$ROOT_APP_DIR/app_asar/node_modules/$module_name"
+    echo "$module_name was copied into app_asar/node_modules."
+  else
+    echo "WARNING: node_modules/$module_name was not found in the isolated project; skipping copy."
+  fi
+}
+
+copy_rebuilt_native_module better-sqlite3
+copy_rebuilt_native_module node-pty
 
 ensure_codex_cli
 
