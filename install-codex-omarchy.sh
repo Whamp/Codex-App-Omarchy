@@ -123,6 +123,10 @@ join_words() {
 
 CODEX_CLI_DEFAULT=""
 CODEX_CLI_SOURCE=""
+BROWSER_USE_NODE_DEFAULT=""
+BROWSER_USE_NODE_SOURCE=""
+NODE_REPL_DEFAULT=""
+NODE_REPL_SOURCE=""
 
 is_executable_file() {
   [ -n "${1:-}" ] && [ -f "$1" ] && [ -x "$1" ]
@@ -227,6 +231,126 @@ shell_quote() {
   printf '%q' "$1"
 }
 
+file_magic_hex() {
+  od -An -tx1 -N4 "$1" 2>/dev/null | tr -d ' \n'
+}
+
+is_macho_magic() {
+  case "$1" in
+    feedface|feedfacf|cefaedfe|cffaedfe|cafebabe|cafebabf) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+verify_no_macho_native_addons() {
+  local scan_root="$1"
+  local found=0
+  local addon=""
+  local magic=""
+  local relative_addon=""
+
+  while IFS= read -r -d '' addon; do
+    magic="$(file_magic_hex "$addon" || true)"
+    if is_macho_magic "$magic"; then
+      if [ "$found" -eq 0 ]; then
+        echo "Mach-O native addon artifacts were found after native rebuild:" >&2
+      fi
+      relative_addon="${addon#$scan_root/}"
+      echo "  - $relative_addon" >&2
+      found=1
+    fi
+  done < <(find "$scan_root" -type f -name '*.node' -print0)
+
+  if [ "$found" -ne 0 ]; then
+    echo "Refusing to install because Linux cannot load Mach-O .node addons." >&2
+    return 1
+  fi
+
+  echo "No Mach-O .node native addons were found after native rebuild."
+}
+
+is_macho_file() {
+  local path="$1"
+  local magic=""
+  [ -f "$path" ] || return 1
+  magic="$(file_magic_hex "$path" || true)"
+  is_macho_magic "$magic"
+}
+
+find_primary_runtime_node_repl() {
+  local preferred="$HOME/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/node_repl"
+  local candidate=""
+
+  if is_executable_file "$preferred" && ! is_macho_file "$preferred"; then
+    printf '%s\n' "$preferred"
+    return 0
+  fi
+
+  [ -d "$HOME/.cache/codex-runtimes" ] || return 1
+  while IFS= read -r -d '' candidate; do
+    if is_executable_file "$candidate" && ! is_macho_file "$candidate"; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done < <(find "$HOME/.cache/codex-runtimes" -path '*/dependencies/bin/node_repl' -type f -print0 2>/dev/null)
+
+  return 1
+}
+
+discover_browser_use_runtime_paths() {
+  echo
+  echo "=== [6] Browser-use Node REPL runtime discovery ==="
+
+  BROWSER_USE_NODE_DEFAULT=""
+  BROWSER_USE_NODE_SOURCE=""
+  NODE_REPL_DEFAULT=""
+  NODE_REPL_SOURCE=""
+
+  if is_executable_file "${CODEX_BROWSER_USE_NODE_PATH:-}" && ! is_macho_file "$CODEX_BROWSER_USE_NODE_PATH"; then
+    BROWSER_USE_NODE_DEFAULT="$(absolute_executable_path "$CODEX_BROWSER_USE_NODE_PATH")"
+    BROWSER_USE_NODE_SOURCE="CODEX_BROWSER_USE_NODE_PATH"
+  else
+    local node_on_path=""
+    node_on_path="$(command -v node 2>/dev/null || true)"
+    if is_executable_file "$node_on_path" && ! is_macho_file "$node_on_path"; then
+      BROWSER_USE_NODE_DEFAULT="$(absolute_executable_path "$node_on_path")"
+      BROWSER_USE_NODE_SOURCE="PATH"
+    fi
+  fi
+
+  if [ -n "$BROWSER_USE_NODE_DEFAULT" ]; then
+    if [ "$BROWSER_USE_NODE_SOURCE" = "CODEX_BROWSER_USE_NODE_PATH" ]; then
+      echo "Using browser-use Node from CODEX_BROWSER_USE_NODE_PATH: $BROWSER_USE_NODE_DEFAULT"
+    else
+      echo "Using browser-use Node from PATH: $BROWSER_USE_NODE_DEFAULT"
+    fi
+  else
+    echo "No Linux browser-use Node executable was found; node_repl integration will stay disabled unless CODEX_BROWSER_USE_NODE_PATH is set at launch."
+  fi
+
+  if is_executable_file "${CODEX_NODE_REPL_PATH:-}" && ! is_macho_file "$CODEX_NODE_REPL_PATH"; then
+    NODE_REPL_DEFAULT="$(absolute_executable_path "$CODEX_NODE_REPL_PATH")"
+    NODE_REPL_SOURCE="CODEX_NODE_REPL_PATH"
+  else
+    local primary_node_repl=""
+    primary_node_repl="$(find_primary_runtime_node_repl || true)"
+    if [ -n "$primary_node_repl" ]; then
+      NODE_REPL_DEFAULT="$(absolute_executable_path "$primary_node_repl")"
+      NODE_REPL_SOURCE="Codex primary runtime"
+    fi
+  fi
+
+  if [ -n "$NODE_REPL_DEFAULT" ]; then
+    if [ "$NODE_REPL_SOURCE" = "CODEX_NODE_REPL_PATH" ]; then
+      echo "Using browser-use node_repl from CODEX_NODE_REPL_PATH: $NODE_REPL_DEFAULT"
+    else
+      echo "Using browser-use node_repl from Codex primary runtime: $NODE_REPL_DEFAULT"
+    fi
+  else
+    echo "No Linux node_repl executable was found; browser-use JavaScript REPL support will stay disabled unless CODEX_NODE_REPL_PATH is set at launch."
+  fi
+}
+
 desktop_exec_quote() {
   local value="$1"
   value="${value//%/%%}"
@@ -240,9 +364,15 @@ desktop_exec_quote() {
 write_launcher() {
   local electron_default="$1"
   local codex_default="${2:-}"
+  local browser_node_default="${3:-}"
+  local node_repl_default="${4:-}"
   local electron_default_quoted
   local codex_default_quoted
+  local browser_node_default_quoted
+  local node_repl_default_quoted
   electron_default_quoted="$(shell_quote "$electron_default")"
+  browser_node_default_quoted="$(shell_quote "$browser_node_default")"
+  node_repl_default_quoted="$(shell_quote "$node_repl_default")"
 
   if [ -n "$codex_default" ]; then
     codex_default_quoted="$(shell_quote "$codex_default")"
@@ -266,6 +396,22 @@ if [ -z "\$CODEX_CLI_PATH" ]; then
 fi
 export CODEX_CLI_PATH
 
+CODEX_BROWSER_USE_NODE_PATH="\${CODEX_BROWSER_USE_NODE_PATH:-}"
+if [ -z "\$CODEX_BROWSER_USE_NODE_PATH" ]; then
+  CODEX_BROWSER_USE_NODE_PATH=$browser_node_default_quoted
+fi
+if [ -n "\$CODEX_BROWSER_USE_NODE_PATH" ]; then
+  export CODEX_BROWSER_USE_NODE_PATH
+fi
+
+CODEX_NODE_REPL_PATH="\${CODEX_NODE_REPL_PATH:-}"
+if [ -z "\$CODEX_NODE_REPL_PATH" ]; then
+  CODEX_NODE_REPL_PATH=$node_repl_default_quoted
+fi
+if [ -n "\$CODEX_NODE_REPL_PATH" ]; then
+  export CODEX_NODE_REPL_PATH
+fi
+
 "\$ELECTRON_BIN" "\$APP_DIR"
 EOF
   else
@@ -288,6 +434,22 @@ if [ -n "\${CODEX_CLI_PATH:-}" ]; then
 else
   echo "No Codex CLI default was discovered; set CODEX_CLI_PATH to an executable codex CLI." >&2
   exit 1
+fi
+
+CODEX_BROWSER_USE_NODE_PATH="\${CODEX_BROWSER_USE_NODE_PATH:-}"
+if [ -z "\$CODEX_BROWSER_USE_NODE_PATH" ]; then
+  CODEX_BROWSER_USE_NODE_PATH=$browser_node_default_quoted
+fi
+if [ -n "\$CODEX_BROWSER_USE_NODE_PATH" ]; then
+  export CODEX_BROWSER_USE_NODE_PATH
+fi
+
+CODEX_NODE_REPL_PATH="\${CODEX_NODE_REPL_PATH:-}"
+if [ -z "\$CODEX_NODE_REPL_PATH" ]; then
+  CODEX_NODE_REPL_PATH=$node_repl_default_quoted
+fi
+if [ -n "\$CODEX_NODE_REPL_PATH" ]; then
+  export CODEX_NODE_REPL_PATH
 fi
 
 "\$ELECTRON_BIN" "\$APP_DIR"
@@ -337,7 +499,7 @@ patch_codex_linux_open_targets() {
 
 seed_opaque_chrome_defaults() {
   echo
-  echo "=== [8] Codex Linux rendering defaults ==="
+  echo "=== [9] Codex Linux rendering defaults ==="
 
   local python_bin=""
   python_bin="$(find_python_bin || true)"
@@ -416,7 +578,7 @@ install_desktop_entry() {
   fi
 
   echo
-  echo "=== [7] User desktop entry and icon ==="
+  echo "=== [8] User desktop entry and icon ==="
 
   local applications_dir="$HOME/.local/share/applications"
   local icon_dir="$HOME/.local/share/icons/hicolor/256x256/apps"
@@ -846,7 +1008,10 @@ copy_rebuilt_native_module() {
 copy_rebuilt_native_module better-sqlite3
 copy_rebuilt_native_module node-pty
 
+verify_no_macho_native_addons "$ROOT_APP_DIR/app_asar"
+
 ensure_codex_cli
+discover_browser_use_runtime_paths
 
 ELECTRON_DEFAULT="$ELECTRON_BIN_INTERNAL"
 if [ -z "$ELECTRON_DEFAULT" ] || [ ! -x "$ELECTRON_DEFAULT" ]; then
@@ -855,8 +1020,8 @@ if [ -z "$ELECTRON_DEFAULT" ] || [ ! -x "$ELECTRON_DEFAULT" ]; then
 fi
 
 echo
-echo "=== [6] run-codex.sh launcher for Codex ==="
-write_launcher "$ELECTRON_DEFAULT" "$CODEX_CLI_DEFAULT"
+echo "=== [7] run-codex.sh launcher for Codex ==="
+write_launcher "$ELECTRON_DEFAULT" "$CODEX_CLI_DEFAULT" "$BROWSER_USE_NODE_DEFAULT" "$NODE_REPL_DEFAULT"
 
 echo
 if [ -n "$CODEX_CLI_DEFAULT" ]; then

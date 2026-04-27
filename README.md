@@ -46,10 +46,12 @@ The installer performs the required setup work:
 - extracts `app.asar` into `~/apps/codex-port/app_asar`
 - rebuilds `better-sqlite3` and `node-pty` for the installed Electron version, preferring `/usr/bin/python` for native build commands when available
 - patches Codex's Linux open-target registry so the project toolbar menu can list installed editors such as VS Code, Cursor, Zed, Antigravity, JetBrains IDEs, Sublime Text, terminal editors such as Neovim/Vim when a terminal emulator is available, and a file manager fallback instead of rendering an empty dropdown
-- generates `~/apps/codex-port/run-codex.sh` with absolute Electron and Codex CLI defaults
+- refuses to finish if any loadable `.node` addon under `app_asar` is still a Mach-O binary after native rebuilds
+- discovers an optional Linux `node_repl` runtime for browser-use JavaScript execution when Codex's primary runtime cache is present
+- generates `~/apps/codex-port/run-codex.sh` with absolute Electron, Codex CLI, and browser-use runtime defaults where available
 - seeds Codex's own Linux appearance state so missing sidebar translucency preferences default to opaque rendering, without overriding an explicit user preference
 
-The native rebuild covers `better-sqlite3` for Codex state storage and `node-pty` for the integrated terminal.
+The native rebuild covers `better-sqlite3` for Codex state storage and `node-pty` for the integrated terminal. The post-rebuild Mach-O guard scans loadable `.node` addons and fails before launcher generation if any macOS-native addon remains.
 
 ## Optional Omarchy niceties
 
@@ -97,7 +99,15 @@ After a successful install, launch Codex with:
 ELECTRON_BIN=/path/to/electron CODEX_CLI_PATH=/path/to/codex ~/apps/codex-port/run-codex.sh
 ```
 
-Without overrides, the generated launcher uses the absolute Electron and Codex CLI paths discovered or installed by the installer.
+For Codex browser-use JavaScript execution, the launcher also preserves launch-time overrides for:
+
+```bash
+CODEX_BROWSER_USE_NODE_PATH=/path/to/linux/node \
+CODEX_NODE_REPL_PATH=/path/to/linux/node_repl \
+~/apps/codex-port/run-codex.sh
+```
+
+Without overrides, the generated launcher uses the absolute Electron and Codex CLI paths discovered or installed by the installer. If `~/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/node_repl` exists and is a Linux executable, the launcher also sets browser-use defaults for `CODEX_BROWSER_USE_NODE_PATH` and `CODEX_NODE_REPL_PATH`. If no Linux `node_repl` is found, normal Codex chat and the integrated terminal still work; browser-use JavaScript REPL support remains disabled until `CODEX_NODE_REPL_PATH` is provided.
 
 ## Installer options
 

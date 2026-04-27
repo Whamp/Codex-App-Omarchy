@@ -1,4 +1,6 @@
 HELPERS/
 DOC/
+__pycache__/
+*.pyc
 
 

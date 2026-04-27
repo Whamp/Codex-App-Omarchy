@@ -59,7 +59,11 @@ printf "fake-asar\n" > "$outdir/Codex.app/Contents/Resources/app.asar"
 if [ "${1:-}" = "-v" ]; then echo "v22.0.0"; elif [ "${1:-}" = "-p" ]; then echo "12.5.0"; else echo "node $*" >>"$FAKE_LOG"; fi
 '
   make_fake "$fakebin" electron '
-if [ "${1:-}" = "--version" ]; then echo "v37.0.0"; else echo "electron $* CODEX_CLI_PATH=${CODEX_CLI_PATH:-}" >>"$FAKE_LOG"; fi
+if [ "${1:-}" = "--version" ]; then
+  echo "v37.0.0"
+else
+  echo "electron $* CODEX_CLI_PATH=${CODEX_CLI_PATH:-} CODEX_BROWSER_USE_NODE_PATH=${CODEX_BROWSER_USE_NODE_PATH:-} CODEX_NODE_REPL_PATH=${CODEX_NODE_REPL_PATH:-}" >>"$FAKE_LOG"
+fi
 '
   make_fake "$fakebin" pnpm '
 echo "pnpm $*" >>"$FAKE_LOG"
@@ -166,6 +170,25 @@ assert_file_contains "$install_log" "No working Codex CLI found; installing @ope
 assert_file_contains "$install_log" "pnpm i -g @openai/codex"
 assert_file_contains "$install_log" "Using Codex CLI after pnpm install: $install_home/.local/share/pnpm/codex"
 assert_file_contains "$install_home/apps/codex-port/run-codex.sh" "CODEX_CLI_PATH=$install_home/.local/share/pnpm/codex"
+
+# A Linux Codex primary runtime enables the browser-use Node REPL MCP server from the launcher.
+runtime_bin="$tmp/runtime/bin"
+runtime_home="$tmp/runtime/home"
+runtime_log="$tmp/runtime.log"
+runtime_node_repl="$runtime_home/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/node_repl"
+mkdir -p "$runtime_bin" "$runtime_home" "$(dirname "$runtime_node_repl")"
+setup_common_fakes "$runtime_bin"
+make_fake "$runtime_bin" codex 'echo path-codex'
+make_fake "$(dirname "$runtime_node_repl")" node_repl 'echo linux-node-repl'
+run_installer "$runtime_bin" "$runtime_home" "$runtime_log" || fail "runtime path launcher run failed"
+assert_file_contains "$runtime_log" "Using browser-use Node from PATH: $runtime_bin/node"
+assert_file_contains "$runtime_log" "Using browser-use node_repl from Codex primary runtime: $runtime_node_repl"
+assert_file_contains "$runtime_home/apps/codex-port/run-codex.sh" "CODEX_BROWSER_USE_NODE_PATH=$runtime_bin/node"
+assert_file_contains "$runtime_home/apps/codex-port/run-codex.sh" "CODEX_NODE_REPL_PATH=$runtime_node_repl"
+runtime_run_log="$tmp/runtime-run.log"
+FAKE_LOG="$runtime_run_log" PATH="$runtime_bin:/usr/bin:/bin" "$runtime_home/apps/codex-port/run-codex.sh" || fail "runtime launcher run failed"
+assert_file_contains "$runtime_run_log" "CODEX_BROWSER_USE_NODE_PATH=$runtime_bin/node"
+assert_file_contains "$runtime_run_log" "CODEX_NODE_REPL_PATH=$runtime_node_repl"
 
 # CLI installation failure is fatal by default and stops before launcher generation.
 fail_bin="$tmp/fail/bin"

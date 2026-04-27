@@ -104,6 +104,10 @@ elif [ "${1:-}" = "dlx" ] && [ "${2:-}" = "asar" ] && [ "${3:-}" = "extract" ]; 
   mkdir -p "$dest/node_modules/better-sqlite3" "$dest/node_modules/node-pty"
   printf "{\"version\":\"12.5.1\"}\n" > "$dest/node_modules/better-sqlite3/package.json"
   printf "{\"version\":\"1.1.0\"}\n" > "$dest/node_modules/node-pty/package.json"
+  if [ "${FAKE_ASAR_MACHO_NODE:-0}" = "1" ]; then
+    mkdir -p "$dest/node_modules/stale-native/build/Release"
+    printf "\xcf\xfa\xed\xfe" > "$dest/node_modules/stale-native/build/Release/stale.node"
+  fi
 elif [ "${1:-}" = "add" ]; then
   echo "pnpm-add $*" >>"$FAKE_LOG"
   echo "pnpm-add-env PYTHON=${PYTHON:-} npm_config_python=${npm_config_python:-}" >>"$FAKE_LOG"
@@ -163,6 +167,17 @@ if [ -L "$success_home/apps/codex-port/app_asar/node_modules/node-pty" ]; then
 fi
 [ -f "$success_home/apps/codex-port/app_asar/node_modules/better-sqlite3/native.node" ] || fail "rebuilt better-sqlite3 native file was not copied into app_asar"
 [ -f "$success_home/apps/codex-port/app_asar/node_modules/node-pty/pty.node" ] || fail "rebuilt node-pty native file was not copied into app_asar"
+
+macho_home="$tmp/macho-home"
+log="$tmp/macho.log"
+mkdir -p "$macho_home"
+: > "$log"
+if FAKE_ASAR_MACHO_NODE=1 run_installer "$macho_home"; then
+  fail "installer should reject Mach-O native .node artifacts after rebuild"
+fi
+assert_file_contains "$log" 'Mach-O native addon artifacts were found after native rebuild'
+assert_file_contains "$log" 'node_modules/stale-native/build/Release/stale.node'
+[ ! -e "$macho_home/apps/codex-port/run-codex.sh" ] || fail "Mach-O native addon failure should stop before launcher generation"
 
 fatal_home="$tmp/fatal-home"
 log="$tmp/fatal.log"
