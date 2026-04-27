@@ -2,19 +2,45 @@
 
 This repository contains a Bash installer that prepares the Codex macOS desktop app for Omarchy on x86_64 Linux.
 
-The canonical installer is `install-codex-omarchy.sh`:
+This repository contains the installer only. It downloads the Codex DMG during setup and prepares it locally on your machine.
+
+The canonical installer is `install-codex-omarchy.sh`.
+
+## Quick start
 
 ```bash
+git clone https://github.com/Whamp/Codex-App-Omarchy.git
+cd Codex-App-Omarchy
+bash ./install-codex-omarchy.sh --preflight-only
 bash ./install-codex-omarchy.sh
 ```
 
-## Required installer behavior
+After a successful install, launch Codex with:
+
+```bash
+~/apps/codex-port/run-codex.sh
+```
+
+## Prerequisites
+
+- Omarchy on x86_64 Linux
+- internet access to download the Codex DMG and Node packages
+- `sudo` access when system packages must be installed
+- Node and pnpm available on `PATH`, preferably through Omarchy's mise-based development environment
+
+The preflight command checks the local platform, required commands, and planned dependency actions without downloading, extracting, rebuilding, installing packages, or changing desktop integration:
+
+```bash
+bash ./install-codex-omarchy.sh --preflight-only
+```
+
+## What the installer does
 
 The installer performs the required setup work:
 
 - detects the local platform, CPU architecture, Omarchy presence, Omarchy version when available, and relevant command paths
 - plans dependencies command-first, so existing `curl`, `7z`, `node`, `pnpm`, `electron`, and Codex CLI commands are reused when they work
-- downloads the original `Codex.dmg` into `~/Downloads/codex-macos`
+- downloads `Codex.dmg` into `~/Downloads/codex-macos`
 - reuses the cached DMG on reruns by default
 - cleans stale extraction and native-build working directories on reruns
 - extracts `app.asar` into `~/apps/codex-port/app_asar`
