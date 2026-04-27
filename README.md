@@ -128,6 +128,10 @@ By default, the installer creates `~/.local/share/applications/codex.desktop` an
 
 The desktop icon is downloaded at install time from Homarr Labs dashboard-icons via jsDelivr using the OpenAI PNG. Homarr Labs dashboard-icons is licensed under Apache-2.0. Icon download failure is non-fatal; the desktop entry falls back to a generic `codex` icon name.
 
+## License
+
+This repository is licensed under the MIT License. See [LICENSE](LICENSE).
+
 ## Wayland/Electron troubleshooting
 
 Wayland/Electron troubleshooting is opt-in only. The installer does not change global Electron flags or desktop environment settings.
