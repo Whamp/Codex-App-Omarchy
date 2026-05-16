@@ -12,10 +12,10 @@ import pathlib
 import sys
 
 MARKER = "Codex-App-Omarchy linux-open-targets patch"
-ANCHOR = (
+ANCHOR_V1 = (
     "var Ed=Td(process.platform),Dd=Id(Ed),Od=new Set(Ed.filter(e=>e.kind===`editor`).map(e=>e.id)),kd=null,Ad=null;"
 )
-REPLACEMENT = (
+REPLACEMENT_V1 = (
     "/* Codex-App-Omarchy linux-open-targets patch */"
     "function __codexOmarchyLinuxOpenTargets(x){"
     "let t=x.slice(),n=new Set(t.map(e=>e.id)),r=e=>{for(let t of e){let e=U(t);if(e)return e}return null},"
@@ -51,6 +51,48 @@ REPLACEMENT = (
     "return t}"
     "var Ed=process.platform===`linux`?__codexOmarchyLinuxOpenTargets(Td(process.platform)):Td(process.platform),Dd=Id(Ed),Od=new Set(Ed.filter(e=>e.kind===`editor`).map(e=>e.id)),kd=null,Ad=null;"
 )
+ANCHOR_V2 = (
+    "var vE=_E(process.platform),yE=OE(vE),bE=new Set(vE.filter(e=>e.kind===`editor`).map(e=>e.id)),xE=null,SE=null;"
+)
+REPLACEMENT_V2 = (
+    "/* Codex-App-Omarchy linux-open-targets patch */"
+    "function __codexOmarchyLinuxOpenTargets(x){"
+    "if(process.platform!==`linux`)return x;"
+    "let t=x.slice(),n=new Set(t.map(e=>e.id)),r=e=>{for(let t of e){let e=lm(t);if(e)return e}return null},"
+    "a=(e,i,a,o,s=ww,c=!0)=>{n.has(e)||(t.push({id:e,label:i,icon:a,kind:`editor`,detect:()=>r(o),args:s,supportsSsh:c}),n.add(e))},"
+    "o=(e,t,n,r)=>a(e,t,n,r,PT,!1),"
+    "s=(e,t,n,r)=>a(e,t,n,r,NT,!1);"
+    "function c(t,n,r,i){let a=i?[`+call cursor(${i.line},${i.column})`,r]:[r],o=t.split(/[\\/]/).pop();return o===`wezterm`?[`start`,`--`,n,...a]:o===`gnome-terminal`?[`--`,n,...a]:[`-e`,n,...a]}"
+    "let l=[`alacritty`,`ghostty`,`kitty`,`wezterm`,`foot`,`gnome-terminal`,`konsole`,`xterm`],u=()=>r(l),d=(e,i,a)=>{n.has(e)||(t.push({id:e,label:i,icon:`apps/vscode.png`,kind:`editor`,detect:()=>{let e=r(a);return e&&u()?e:null},open:async({command:e,path:t,location:n})=>{let r=u();if(!r)throw Error(`No terminal emulator is available for terminal editor target`);await pm(r,c(r,e,t,n))}}),n.add(e))};"
+    "a(`vscode`,`VS Code`,`apps/vscode.png`,[`code`]);"
+    "a(`vscodeInsiders`,`VS Code Insiders`,`apps/vscode-insiders.png`,[`code-insiders`]);"
+    "a(`vscodium`,`VSCodium`,`apps/vscode.png`,[`codium`]);"
+    "a(`cursor`,`Cursor`,`apps/cursor.png`,[`cursor`]);"
+    "a(`windsurf`,`Windsurf`,`apps/windsurf.png`,[`windsurf`]);"
+    "a(`antigravity`,`Antigravity`,`apps/antigravity.png`,[`antigravity`]);"
+    "a(`zed`,`Zed`,`apps/zed.png`,[`zed`,`zeditor`],PT,!1);"
+    "o(`sublimeText`,`Sublime Text`,`apps/sublime-text.png`,[`subl`,`sublime_text`]);"
+    "s(`androidStudio`,`Android Studio`,`apps/android-studio.png`,[`studio`,`android-studio`]);"
+    "s(`intellij`,`IntelliJ IDEA`,`apps/intellij.png`,[`idea`,`intellij-idea-ultimate`,`intellij-idea-community`]);"
+    "s(`rider`,`Rider`,`apps/rider.png`,[`rider`]);"
+    "s(`goland`,`GoLand`,`apps/goland.png`,[`goland`]);"
+    "s(`rustrover`,`RustRover`,`apps/rustrover.png`,[`rustrover`]);"
+    "s(`pycharm`,`PyCharm`,`apps/pycharm.png`,[`pycharm`]);"
+    "s(`webstorm`,`WebStorm`,`apps/webstorm.svg`,[`webstorm`]);"
+    "s(`phpstorm`,`PhpStorm`,`apps/phpstorm.png`,[`phpstorm`]);"
+    "a(`kate`,`Kate`,`apps/vscode.png`,[`kate`],PT,!1);"
+    "a(`geany`,`Geany`,`apps/vscode.png`,[`geany`],PT,!1);"
+    "a(`gnomeTextEditor`,`GNOME Text Editor`,`apps/vscode.png`,[`gnome-text-editor`,`gedit`],PT,!1);"
+    "a(`emacs`,`Emacs`,`apps/vscode.png`,[`emacs`],PT,!1);"
+    "d(`neovim`,`Neovim`,[`nvim`]);"
+    "d(`vim`,`Vim`,[`vim`]);"
+    "d(`helix`,`Helix`,[`hx`,`helix`]);"
+    "n.has(`fileManager`)||(t.push({id:`fileManager`,label:`File Manager`,icon:`apps/file-explorer.png`,kind:`fileManager`,detect:()=>r([`xdg-open`,`nautilus`,`dolphin`,`thunar`,`nemo`,`pcmanfm`]),args:e=>[e]}),n.add(`fileManager`));"
+    "return t}"
+    "var vE=__codexOmarchyLinuxOpenTargets(_E(process.platform)),yE=OE(vE),bE=new Set(vE.filter(e=>e.kind===`editor`).map(e=>e.id)),xE=null,SE=null;"
+)
+
+REPLACEMENTS = ((ANCHOR_V2, REPLACEMENT_V2), (ANCHOR_V1, REPLACEMENT_V1))
 
 
 def find_main_bundles(app_asar: pathlib.Path) -> list[pathlib.Path]:
@@ -64,11 +106,13 @@ def replace_existing_patch(text: str) -> str | None:
     marker_start = text.find(f"/* {MARKER} */function __codexOmarchyLinuxOpenTargets")
     if marker_start < 0:
         return None
-    marker_end = text.find("kd=null,Ad=null;", marker_start)
-    if marker_end < 0:
-        return None
-    marker_end += len("kd=null,Ad=null;")
-    return text[:marker_start] + REPLACEMENT + text[marker_end:]
+    replacement = REPLACEMENT_V2 if "var vE=" in text[marker_start : marker_start + 4000] else REPLACEMENT_V1
+    for end_token in ("xE=null,SE=null;", "kd=null,Ad=null;"):
+        marker_end = text.find(end_token, marker_start)
+        if marker_end >= 0:
+            marker_end += len(end_token)
+            return text[:marker_start] + replacement + text[marker_end:]
+    return None
 
 
 def patch_bundle(bundle: pathlib.Path) -> str:
@@ -85,10 +129,11 @@ def patch_bundle(bundle: pathlib.Path) -> str:
             bundle.write_text(updated, encoding="utf-8")
             return "updated"
         return "already patched"
-    if ANCHOR not in text:
-        raise ValueError(f"open-target registry anchor was not found in {bundle}")
-    bundle.write_text(text.replace(ANCHOR, REPLACEMENT, 1), encoding="utf-8")
-    return "patched"
+    for anchor, replacement in REPLACEMENTS:
+        if anchor in text:
+            bundle.write_text(text.replace(anchor, replacement, 1), encoding="utf-8")
+            return "patched"
+    raise ValueError(f"open-target registry anchor was not found in {bundle}")
 
 
 def main(argv: list[str]) -> int:

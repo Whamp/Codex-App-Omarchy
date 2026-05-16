@@ -115,7 +115,7 @@ elif [ "${1:-}" = "dlx" ] && [ "${2:-}" = "asar" ] && [ "${3:-}" = "extract" ]; 
 elif [ "${1:-}" = "add" ]; then
   mkdir -p node_modules/better-sqlite3
   printf "rebuilt\n" > node_modules/better-sqlite3/native.node
-elif [ "${1:-}" = "dlx" ] && [ "${2:-}" = "electron-rebuild" ]; then
+elif [ "${1:-}" = "dlx" ] && [ "${2:-}" = "@electron/rebuild" ]; then
   :
 elif [ "${1:-}" = "setup" ]; then
   :

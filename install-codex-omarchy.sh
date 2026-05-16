@@ -242,6 +242,13 @@ is_macho_magic() {
   esac
 }
 
+is_darwin_prebuild_path() {
+  case "$1" in
+    */prebuilds/darwin-*/*.node|*/prebuilds/darwin/*.node) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 verify_no_macho_native_addons() {
   local scan_root="$1"
   local found=0
@@ -250,12 +257,15 @@ verify_no_macho_native_addons() {
   local relative_addon=""
 
   while IFS= read -r -d '' addon; do
+    relative_addon="${addon#$scan_root/}"
+    if is_darwin_prebuild_path "$relative_addon"; then
+      continue
+    fi
     magic="$(file_magic_hex "$addon" || true)"
     if is_macho_magic "$magic"; then
       if [ "$found" -eq 0 ]; then
         echo "Mach-O native addon artifacts were found after native rebuild:" >&2
       fi
-      relative_addon="${addon#$scan_root/}"
       echo "  - $relative_addon" >&2
       found=1
     fi
@@ -397,6 +407,14 @@ if [ -n "\$CODEX_ELECTRON_RESOURCES_PATH" ]; then
   export CODEX_ELECTRON_RESOURCES_PATH
 fi
 
+CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH="\${CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH:-}"
+if [ -z "\$CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH" ]; then
+  CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH=$electron_resources_default_quoted
+fi
+if [ -n "\$CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH" ]; then
+  export CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH
+fi
+
 ELECTRON_BIN="\${ELECTRON_BIN:-}"
 if [ -z "\$ELECTRON_BIN" ]; then
   ELECTRON_BIN=$electron_default_quoted
@@ -423,7 +441,7 @@ if [ -n "\$CODEX_NODE_REPL_PATH" ]; then
   export CODEX_NODE_REPL_PATH
 fi
 
-"\$ELECTRON_BIN" "\$APP_DIR"
+"\$ELECTRON_BIN" "\$APP_DIR" "\$@"
 EOF
   else
     cat > "$ROOT_APP_DIR/run-codex.sh" <<EOF
@@ -442,6 +460,14 @@ if [ -z "\$CODEX_ELECTRON_RESOURCES_PATH" ]; then
 fi
 if [ -n "\$CODEX_ELECTRON_RESOURCES_PATH" ]; then
   export CODEX_ELECTRON_RESOURCES_PATH
+fi
+
+CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH="\${CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH:-}"
+if [ -z "\$CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH" ]; then
+  CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH=$electron_resources_default_quoted
+fi
+if [ -n "\$CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH" ]; then
+  export CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH
 fi
 
 ELECTRON_BIN="\${ELECTRON_BIN:-}"
@@ -471,7 +497,7 @@ if [ -n "\$CODEX_NODE_REPL_PATH" ]; then
   export CODEX_NODE_REPL_PATH
 fi
 
-"\$ELECTRON_BIN" "\$APP_DIR"
+"\$ELECTRON_BIN" "\$APP_DIR" "\$@"
 EOF
   fi
 
@@ -516,12 +542,34 @@ patch_codex_linux_open_targets() {
   fi
 }
 
+patch_codex_linux_remote_control_visibility() {
+  echo
+  echo "=== [3c] Linux remote-control visibility patch ==="
+
+  local patcher="$INSTALLER_DIR/scripts/patch_codex_linux_remote_control_visibility.py"
+  if [ ! -f "$patcher" ]; then
+    echo "WARNING: Linux remote-control visibility patcher was not found at $patcher; continuing without the mobile remote-control UI fix." >&2
+    return 0
+  fi
+
+  local python_bin=""
+  if ! python_bin="$(find_python_bin)"; then
+    echo "WARNING: could not patch Codex Linux remote-control visibility because Python was not found; continuing without the mobile remote-control UI fix." >&2
+    return 0
+  fi
+
+  if ! "$python_bin" "$patcher" "$ROOT_APP_DIR/app_asar"; then
+    echo "WARNING: could not patch Codex Linux remote-control visibility; continuing without the mobile remote-control UI fix." >&2
+    return 0
+  fi
+}
+
 copy_bundled_plugin_resources() {
   local source_resources_dir="$1"
   local target_resources_dir="$ROOT_APP_DIR/resources"
 
   echo
-  echo "=== [3c] Bundled plugin resources ==="
+  echo "=== [3d] Bundled plugin resources ==="
 
   rm -rf "$target_resources_dir"
   mkdir -p "$target_resources_dir"
@@ -646,10 +694,11 @@ install_desktop_entry() {
 Type=Application
 Name=Codex
 Comment=Codex desktop app port
-Exec=$desktop_exec
+Exec=$desktop_exec %u
 Icon=$desktop_icon
 Terminal=false
 Categories=Development;
+MimeType=x-scheme-handler/codex;
 EOF
 
   chmod 644 "$desktop_file"
@@ -659,6 +708,12 @@ EOF
     update-desktop-database "$applications_dir" || echo "WARNING: update-desktop-database failed; desktop entry was still created." >&2
   else
     echo "update-desktop-database was not found; skipping standard desktop database refresh."
+  fi
+
+  if command -v xdg-mime >/dev/null 2>&1; then
+    xdg-mime default "$(basename "$desktop_file")" x-scheme-handler/codex || echo "WARNING: could not set Codex as the default codex:// URL handler." >&2
+  else
+    echo "xdg-mime was not found; skipping codex:// URL handler registration."
   fi
 
   if [ "$OMARCHY_STATUS" = "present" ]; then
@@ -961,6 +1016,7 @@ echo "Extracting app.asar into the app_asar directory (through pnpm dlx asar)...
 "$PNPM_BIN" dlx asar extract "$APP_ASAR_PATH" "$ROOT_APP_DIR/app_asar"
 
 patch_codex_linux_open_targets
+patch_codex_linux_remote_control_visibility
 copy_bundled_plugin_resources "$APP_RESOURCES_DIR"
 
 echo
@@ -1013,7 +1069,7 @@ pnpm add "better-sqlite3@$BSQL_VERSION" "node-pty@$NODE_PTY_VERSION"
 
 echo
 echo "Rebuilding native modules in the isolated project for Electron $ELECTRON_VERSION..."
-ELECTRON_REBUILD_CMD=("$PNPM_BIN" dlx electron-rebuild -v "$ELECTRON_VERSION" -f -w better-sqlite3 -w node-pty)
+ELECTRON_REBUILD_CMD=("$PNPM_BIN" dlx @electron/rebuild -v "$ELECTRON_VERSION" -f -w better-sqlite3,node-pty)
 echo "Command: ${ELECTRON_REBUILD_CMD[*]}"
 set +e
 "${ELECTRON_REBUILD_CMD[@]}"

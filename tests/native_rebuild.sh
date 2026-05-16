@@ -104,6 +104,8 @@ elif [ "${1:-}" = "dlx" ] && [ "${2:-}" = "asar" ] && [ "${3:-}" = "extract" ]; 
   mkdir -p "$dest/node_modules/better-sqlite3" "$dest/node_modules/node-pty"
   printf "{\"version\":\"12.5.1\"}\n" > "$dest/node_modules/better-sqlite3/package.json"
   printf "{\"version\":\"1.1.0\"}\n" > "$dest/node_modules/node-pty/package.json"
+  mkdir -p "$dest/node_modules/objc-js/prebuilds/darwin-x64"
+  printf "\xcf\xfa\xed\xfe" > "$dest/node_modules/objc-js/prebuilds/darwin-x64/node.napi.node"
   if [ "${FAKE_ASAR_MACHO_NODE:-0}" = "1" ]; then
     mkdir -p "$dest/node_modules/stale-native/build/Release"
     printf "\xcf\xfa\xed\xfe" > "$dest/node_modules/stale-native/build/Release/stale.node"
@@ -123,13 +125,23 @@ elif [ "${1:-}" = "add" ]; then
         version="${spec#node-pty@}"
         mkdir -p "node_modules/.pnpm/node-pty@$version/node_modules/node-pty"
         printf "rebuilt\n" > "node_modules/.pnpm/node-pty@$version/node_modules/node-pty/pty.node"
+        mkdir -p "node_modules/.pnpm/node-pty@$version/node_modules/node-pty/prebuilds/darwin-x64"
+        printf "\xcf\xfa\xed\xfe" > "node_modules/.pnpm/node-pty@$version/node_modules/node-pty/prebuilds/darwin-x64/pty.node"
         ln -s ".pnpm/node-pty@$version/node_modules/node-pty" node_modules/node-pty
         ;;
     esac
   done
-elif [ "${1:-}" = "dlx" ] && [ "${2:-}" = "electron-rebuild" ]; then
+elif [ "${1:-}" = "dlx" ] && [ "${2:-}" = "@electron/rebuild" ]; then
   echo "electron-rebuild $*" >>"$FAKE_LOG"
   echo "electron-rebuild-env PYTHON=${PYTHON:-} npm_config_python=${npm_config_python:-}" >>"$FAKE_LOG"
+  workspaces=0
+  for arg in "$@"; do
+    [ "$arg" = "-w" ] && workspaces=$((workspaces + 1))
+  done
+  if [ "$workspaces" -gt 1 ]; then
+    echo "argv.w.split is not a function" >&2
+    exit 255
+  fi
   if [ "${FAKE_REBUILD_FAIL:-0}" = "1" ]; then
     echo "simulated rebuild failure" >&2
     exit 42
@@ -152,7 +164,7 @@ run_installer "$success_home" || fail "installer should succeed when native rebu
 assert_file_contains "$log" 'Reading Electron version'
 assert_file_contains "$log" 'Electron version: 37.2.3'
 assert_file_contains "$log" 'pnpm add better-sqlite3@12.5.1 node-pty@1.1.0'
-assert_file_contains "$log" 'pnpm dlx electron-rebuild -v 37.2.3 -f -w better-sqlite3 -w node-pty'
+assert_file_contains "$log" 'pnpm dlx @electron/rebuild -v 37.2.3 -f -w better-sqlite3,node-pty'
 assert_file_contains "$log" 'Reading the node-pty version from the Codex app'
 assert_file_contains "$log" 'node-pty was copied into app_asar/node_modules.'
 if [ -x /usr/bin/python ]; then
@@ -167,6 +179,8 @@ if [ -L "$success_home/apps/codex-port/app_asar/node_modules/node-pty" ]; then
 fi
 [ -f "$success_home/apps/codex-port/app_asar/node_modules/better-sqlite3/native.node" ] || fail "rebuilt better-sqlite3 native file was not copied into app_asar"
 [ -f "$success_home/apps/codex-port/app_asar/node_modules/node-pty/pty.node" ] || fail "rebuilt node-pty native file was not copied into app_asar"
+[ -f "$success_home/apps/codex-port/app_asar/node_modules/objc-js/prebuilds/darwin-x64/node.napi.node" ] || fail "fixture should include ignored Darwin prebuild"
+[ -f "$success_home/apps/codex-port/app_asar/node_modules/node-pty/prebuilds/darwin-x64/pty.node" ] || fail "fixture should include ignored rebuilt Darwin prebuild"
 
 macho_home="$tmp/macho-home"
 log="$tmp/macho.log"

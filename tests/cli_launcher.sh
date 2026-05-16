@@ -66,7 +66,7 @@ if [ "${1:-}" = "-v" ]; then echo "v22.0.0"; elif [ "${1:-}" = "-p" ]; then echo
 if [ "${1:-}" = "--version" ]; then
   echo "v37.0.0"
 else
-  echo "electron $* CODEX_CLI_PATH=${CODEX_CLI_PATH:-} CODEX_BROWSER_USE_NODE_PATH=${CODEX_BROWSER_USE_NODE_PATH:-} CODEX_NODE_REPL_PATH=${CODEX_NODE_REPL_PATH:-} CODEX_ELECTRON_RESOURCES_PATH=${CODEX_ELECTRON_RESOURCES_PATH:-}" >>"$FAKE_LOG"
+  echo "electron $* CODEX_CLI_PATH=${CODEX_CLI_PATH:-} CODEX_BROWSER_USE_NODE_PATH=${CODEX_BROWSER_USE_NODE_PATH:-} CODEX_NODE_REPL_PATH=${CODEX_NODE_REPL_PATH:-} CODEX_ELECTRON_RESOURCES_PATH=${CODEX_ELECTRON_RESOURCES_PATH:-} CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH=${CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH:-}" >>"$FAKE_LOG"
 fi
 '
   make_fake "$fakebin" pnpm '
@@ -82,7 +82,7 @@ elif [ "${1:-}" = "dlx" ] && [ "${2:-}" = "asar" ] && [ "${3:-}" = "extract" ]; 
 elif [ "${1:-}" = "add" ]; then
   mkdir -p node_modules/better-sqlite3
   printf "rebuilt\n" > node_modules/better-sqlite3/native.node
-elif [ "${1:-}" = "dlx" ] && [ "${2:-}" = "electron-rebuild" ]; then
+elif [ "${1:-}" = "dlx" ] && [ "${2:-}" = "@electron/rebuild" ]; then
   :
 elif [ "${1:-}" = "setup" ]; then
   :
@@ -116,7 +116,7 @@ run_installer() {
 
 bash -n "$installer"
 
-unset CODEX_CLI_PATH CODEX_BROWSER_USE_NODE_PATH CODEX_NODE_REPL_PATH CODEX_ELECTRON_RESOURCES_PATH
+unset CODEX_CLI_PATH CODEX_BROWSER_USE_NODE_PATH CODEX_NODE_REPL_PATH CODEX_ELECTRON_RESOURCES_PATH CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -134,7 +134,7 @@ assert_file_contains "$explicit_log" "Using Codex CLI from CODEX_CLI_PATH: $tmp/
 assert_file_not_contains "$explicit_log" "pnpm i -g @openai/codex"
 assert_file_contains "$explicit_home/apps/codex-port/run-codex.sh" "ELECTRON_BIN=$explicit_bin/electron"
 assert_file_contains "$explicit_home/apps/codex-port/run-codex.sh" "CODEX_CLI_PATH=$tmp/custom/codex-custom"
-assert_file_contains "$explicit_home/apps/codex-port/run-codex.sh" '"$ELECTRON_BIN" "$APP_DIR"'
+assert_file_contains "$explicit_home/apps/codex-port/run-codex.sh" '"$ELECTRON_BIN" "$APP_DIR" "$@"'
 
 # Existing codex on PATH satisfies the CLI requirement and avoids reinstall/update.
 path_bin="$tmp/path/bin"
@@ -192,13 +192,16 @@ assert_file_contains "$runtime_log" "Using browser-use node_repl from Codex prim
 assert_file_contains "$runtime_home/apps/codex-port/run-codex.sh" "CODEX_BROWSER_USE_NODE_PATH=$runtime_bin/node"
 assert_file_contains "$runtime_home/apps/codex-port/run-codex.sh" "CODEX_NODE_REPL_PATH=$runtime_node_repl"
 assert_file_contains "$runtime_home/apps/codex-port/run-codex.sh" "CODEX_ELECTRON_RESOURCES_PATH=$runtime_home/apps/codex-port/resources"
+assert_file_contains "$runtime_home/apps/codex-port/run-codex.sh" "CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH=$runtime_home/apps/codex-port/resources"
 assert_file_contains "$runtime_home/apps/codex-port/resources/plugins/openai-bundled/.agents/plugins/marketplace.json" '"browser-use"'
 assert_file_contains "$runtime_home/apps/codex-port/resources/plugins/openai-bundled/plugins/browser-use/.codex-plugin/plugin.json" '"name":"browser-use"'
 runtime_run_log="$tmp/runtime-run.log"
-FAKE_LOG="$runtime_run_log" PATH="$runtime_bin:/usr/bin:/bin" "$runtime_home/apps/codex-port/run-codex.sh" || fail "runtime launcher run failed"
+FAKE_LOG="$runtime_run_log" PATH="$runtime_bin:/usr/bin:/bin" "$runtime_home/apps/codex-port/run-codex.sh" "codex://settings" || fail "runtime launcher run failed"
 assert_file_contains "$runtime_run_log" "CODEX_BROWSER_USE_NODE_PATH=$runtime_bin/node"
 assert_file_contains "$runtime_run_log" "CODEX_NODE_REPL_PATH=$runtime_node_repl"
 assert_file_contains "$runtime_run_log" "CODEX_ELECTRON_RESOURCES_PATH=$runtime_home/apps/codex-port/resources"
+assert_file_contains "$runtime_run_log" "CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH=$runtime_home/apps/codex-port/resources"
+assert_file_contains "$runtime_run_log" "codex://settings"
 
 # CLI installation failure is fatal by default and stops before launcher generation.
 fail_bin="$tmp/fail/bin"

@@ -124,7 +124,7 @@ elif [ "${1:-}" = "dlx" ] && [ "${2:-}" = "asar" ] && [ "${3:-}" = "extract" ]; 
 elif [ "${1:-}" = "add" ]; then
   mkdir -p node_modules/better-sqlite3
   printf "rebuilt\n" > node_modules/better-sqlite3/native.node
-elif [ "${1:-}" = "dlx" ] && [ "${2:-}" = "electron-rebuild" ]; then
+elif [ "${1:-}" = "dlx" ] && [ "${2:-}" = "@electron/rebuild" ]; then
   :
 fi
 '
@@ -175,10 +175,11 @@ assert_file_exists "$desktop_file"
 assert_file_exists "$icon_file"
 assert_file_contains "$icon_file" "fake-openai-png"
 assert_file_contains "$desktop_file" "Name=Codex"
-assert_file_contains "$desktop_file" "Exec=\"$default_home/apps/codex-port/run-codex.sh\""
+assert_file_contains "$desktop_file" "Exec=\"$default_home/apps/codex-port/run-codex.sh\" %u"
 assert_file_contains "$desktop_file" "Icon=codex-openai"
 assert_file_contains "$desktop_file" "Type=Application"
 assert_file_contains "$desktop_file" "Categories=Development;"
+assert_file_contains "$desktop_file" "MimeType=x-scheme-handler/codex;"
 assert_file_not_contains "$desktop_file" "Categories=Development;Utility;"
 assert_file_not_contains "$desktop_file" "electron"
 assert_file_contains "$default_log" "curl --fail --location --show-error -o"
@@ -242,7 +243,7 @@ setup_common_fakes "$special_bin"
 run_installer "$special_bin" "$special_home" "$special_log" --skip-cli-install || fail "special HOME desktop entry run failed"
 special_desktop_file="$special_home/.local/share/applications/codex.desktop"
 assert_file_exists "$special_desktop_file"
-assert_file_contains "$special_desktop_file" "Exec=\"$tmp/special/home with %% sign/apps/codex-port/run-codex.sh\""
+assert_file_contains "$special_desktop_file" "Exec=\"$tmp/special/home with %% sign/apps/codex-port/run-codex.sh\" %u"
 assert_file_not_contains "$special_desktop_file" "Exec=$special_home/apps/codex-port/run-codex.sh"
 assert_file_not_contains "$special_log" "BROAD_REFRESH"
 assert_file_not_contains "$special_log" "BROAD_CONFIG_REFRESH"

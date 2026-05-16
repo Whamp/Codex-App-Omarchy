@@ -45,6 +45,7 @@ Preflight checks the platform, commands, dependency plan, and planned actions. I
 - Copies Codex's bundled plugin resources to `~/apps/codex-port/resources` so bundled plugins such as Browser Use can auto-install under system Electron.
 - Rebuilds `better-sqlite3` and `node-pty` for the installed Electron version.
 - Patches Codex's Linux open-target registry so the project toolbar can list installed editors, terminal editors, and a file manager fallback.
+- Patches Codex's Linux mobile remote-control visibility gate so Settings > Connections can show the local device controls when the relay/app-server path is available.
 - Fails before launcher generation if any loadable `.node` addon is still a Mach-O binary after rebuilds.
 - Generates `~/apps/codex-port/run-codex.sh` with discovered Electron, Codex CLI, and browser-use runtime defaults when available.
 - Seeds Codex's sidebar appearance state so missing translucent sidebar preferences default to opaque rendering without overriding your explicit setting.
@@ -106,7 +107,7 @@ CODEX_NODE_REPL_PATH=/path/to/linux/node_repl \
 For Codex bundled plugin discovery under system Electron:
 
 ```bash
-CODEX_ELECTRON_RESOURCES_PATH=/path/to/codex/resources ~/apps/codex-port/run-codex.sh
+CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH=/path/to/codex/resources ~/apps/codex-port/run-codex.sh
 ```
 
 If no Linux `node_repl` is found, Codex chat and the integrated terminal still work. Browser-use JavaScript REPL support stays disabled until `CODEX_NODE_REPL_PATH` is provided.
@@ -146,6 +147,7 @@ Run the lightweight shell baseline before submitting changes:
 ./tests/cli_launcher.sh
 ./tests/desktop_entry.sh
 ./tests/linux_open_targets_patch.sh
+./tests/remote_control_visibility_patch.sh
 ```
 
 ## License
