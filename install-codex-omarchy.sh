@@ -3,9 +3,10 @@ set -euo pipefail
 
 show_help() {
   cat <<'EOF'
-Usage: bash ./install-codex-omarchy.sh [--help] [--preflight-only] [--no-install-deps] [--force-download] [--allow-rebuild-failure] [--skip-cli-install] [--no-desktop-entry]
+Usage: sudo bash ./install-codex-omarchy.sh [--help] [--preflight-only] [--no-install-deps] [--force-download] [--allow-rebuild-failure] [--skip-cli-install] [--no-desktop-entry]
 
 Prepare the Codex macOS desktop app for Omarchy systems.
+Run preflight without sudo if desired; run the install command with sudo so system packages can be installed automatically.
 
 Options:
   -h, --help        Show this help text and exit.
@@ -34,6 +35,39 @@ case "$INSTALLER_PATH" in
   */*) INSTALLER_DIR="$(cd "${INSTALLER_PATH%/*}" && pwd)" ;;
   *) INSTALLER_DIR="$(pwd)" ;;
 esac
+
+TEMP_FILES=()
+TARGET_USER=""
+TARGET_UID=""
+TARGET_GID=""
+TARGET_HOME=""
+
+fix_target_ownership() {
+  [ "${CODEX_OMARCHY_TEST_ASSUME_ROOT:-0}" = "1" ] || [ "${EUID:-$(id -u 2>/dev/null || echo 1)}" -eq 0 ] || return 0
+  [ -n "${TARGET_UID:-}" ] || return 0
+  [ "${TARGET_UID:-0}" -ne 0 ] || return 0
+
+  local path
+  for path in \
+    "$HOME/Downloads/codex-macos" \
+    "$HOME/apps" \
+    "$HOME/apps/codex-port" \
+    "$HOME/.local/share/applications/codex.desktop" \
+    "$HOME/.local/share/icons/hicolor/256x256/apps/codex-openai.png" \
+    "$HOME/.codex" \
+    "${PNPM_HOME:-}"; do
+    [ -n "$path" ] && [ -e "$path" ] && chown -R "$TARGET_UID:$TARGET_GID" "$path" 2>/dev/null || true
+  done
+}
+
+cleanup() {
+  local file
+  for file in "${TEMP_FILES[@]:-}"; do
+    [ -n "$file" ] && rm -f -- "$file" 2>/dev/null || true
+  done
+  fix_target_ownership
+}
+trap cleanup EXIT
 
 PREFLIGHT_ONLY=0
 NO_INSTALL_DEPS=0
@@ -77,7 +111,7 @@ done
 ##
 ## Codex macOS -> Omarchy installer
 ## Usage:
-##   bash ./install-codex-omarchy.sh
+##   sudo bash ./install-codex-omarchy.sh
 ##
 
 RUNTIME_INSTALL_PACKAGES=()
@@ -87,6 +121,77 @@ FATAL_DEPENDENCY_MESSAGES=()
 
 has_cmd() {
   command -v "$1" >/dev/null 2>&1
+}
+
+prepend_path_if_dir() {
+  local dir="$1"
+  [ -d "$dir" ] || return 0
+  case ":$PATH:" in
+    *":$dir:"*) : ;;
+    *) PATH="$dir:$PATH" ;;
+  esac
+}
+
+running_as_root() {
+  [ "${CODEX_OMARCHY_TEST_ASSUME_ROOT:-0}" = "1" ] || [ "${EUID:-$(id -u 2>/dev/null || echo 1)}" -eq 0 ]
+}
+
+configure_target_user_context() {
+  if [ "${EUID:-$(id -u 2>/dev/null || echo 1)}" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER:-}" != "root" ]; then
+    TARGET_USER="$SUDO_USER"
+  else
+    TARGET_USER="$(id -un 2>/dev/null || printf '%s\n' "${USER:-root}")"
+  fi
+
+  TARGET_HOME=""
+  if has_cmd getent; then
+    local passwd_entry
+    passwd_entry="$(getent passwd "$TARGET_USER" 2>/dev/null || true)"
+    if [ -n "$passwd_entry" ]; then
+      TARGET_HOME="${passwd_entry#*:*:*:*:*:}"
+      TARGET_HOME="${TARGET_HOME%%:*}"
+    fi
+  fi
+  [ -n "$TARGET_HOME" ] || TARGET_HOME="$HOME"
+  TARGET_UID="$(id -u "$TARGET_USER" 2>/dev/null || id -u 2>/dev/null || echo 0)"
+  TARGET_GID="$(id -g "$TARGET_USER" 2>/dev/null || id -g 2>/dev/null || echo 0)"
+
+  if [ "${EUID:-$(id -u 2>/dev/null || echo 1)}" -eq 0 ] && [ "$TARGET_USER" != "root" ]; then
+    export HOME="$TARGET_HOME"
+    export USER="$TARGET_USER"
+    export LOGNAME="$TARGET_USER"
+  fi
+
+  local node_dir
+  for node_dir in "$HOME"/.local/share/mise/installs/node/*/bin; do
+    prepend_path_if_dir "$node_dir"
+  done
+  prepend_path_if_dir "$HOME/.local/share/mise/shims"
+  prepend_path_if_dir "$HOME/.local/share/omarchy/bin"
+  prepend_path_if_dir "$HOME/.local/share/pnpm"
+  prepend_path_if_dir "$HOME/.local/bin"
+  export PATH
+}
+
+arch_package_installed() {
+  local pkg="$1"
+  has_cmd pacman || return 1
+  pacman -Q "$pkg" >/dev/null 2>&1
+}
+
+add_build_package_if_missing() {
+  local pkg="$1"
+  arch_package_installed "$pkg" || add_build_install_package "$pkg"
+}
+
+ensure_root_for_dependency_install() {
+  running_as_root && return 0
+
+  echo "Dependency installation requires root." >&2
+  echo "Re-run the installer with sudo so it can install: $(join_words "${INSTALL_PACKAGES[@]}")" >&2
+  echo "Example: sudo bash ./install-codex-omarchy.sh" >&2
+  echo "When run through sudo, the installer targets the invoking user's home directory, not /root." >&2
+  exit 1
 }
 
 add_unique_package() {
@@ -121,6 +226,8 @@ join_words() {
   echo "$*"
 }
 
+configure_target_user_context
+
 CODEX_CLI_DEFAULT=""
 CODEX_CLI_SOURCE=""
 BROWSER_USE_NODE_DEFAULT=""
@@ -137,6 +244,75 @@ is_working_codex_cli() {
   "$1" --version >/dev/null 2>&1 || return 1
 }
 
+read_electron_version() {
+  local electron_bin="$1"
+  local version_output=""
+
+  if running_as_root; then
+    version_output="$("$electron_bin" --no-sandbox --version 2>/dev/null || true)"
+  else
+    version_output="$("$electron_bin" --version 2>/dev/null || true)"
+  fi
+
+  if [ -z "$version_output" ]; then
+    version_output="$(ELECTRON_RUN_AS_NODE=1 "$electron_bin" -e 'console.log(process.versions.electron || "")' 2>/dev/null || true)"
+  fi
+
+  version_output="${version_output%%$'\n'*}"
+  version_output="${version_output#v}"
+  printf '%s\n' "$version_output"
+}
+
+print_electron_version() {
+  local electron_bin="$1"
+  local version
+  version="$(read_electron_version "$electron_bin")"
+  [ -n "$version" ] && printf 'v%s\n' "$version"
+}
+
+parse_electron_major() {
+  local version="$1"
+  version="${version#v}"
+  case "$version" in
+    ''|*[!0-9.]*|.*) return 1 ;;
+  esac
+  printf '%s\n' "${version%%.*}"
+}
+
+is_compatible_electron_bin() {
+  local electron_bin="$1"
+  local version major
+  [ -n "$electron_bin" ] && [ -x "$electron_bin" ] || return 1
+  version="$(read_electron_version "$electron_bin")"
+  if ! major="$(parse_electron_major "$version")"; then
+    # Test/fake Electron commands may not print real versions. Treat them as
+    # compatible unless they explicitly report a too-new major.
+    return 0
+  fi
+  [ "$major" -le 41 ]
+}
+
+has_preferred_electron_runtime() {
+  local path
+  path="$(command -v electron 2>/dev/null || true)"
+  [ -n "$path" ] && is_compatible_electron_bin "$path" && return 0
+
+  path="$(command -v electron41 2>/dev/null || true)"
+  [ -n "$path" ] && is_compatible_electron_bin "$path" && return 0
+
+  return 1
+}
+
+find_compatible_electron_bin() {
+  local cmd path
+  for cmd in electron electron41 electron40 electron39 electron38 electron37; do
+    path="$(command -v "$cmd" 2>/dev/null || true)"
+    [ -n "$path" ] || continue
+    is_compatible_electron_bin "$path" && absolute_executable_path "$path" && return 0
+  done
+  return 1
+}
+
 absolute_executable_path() {
   local executable_path="$1"
   local executable_dir
@@ -144,16 +320,16 @@ absolute_executable_path() {
 
   is_executable_file "$executable_path" || return 1
 
-  if command -v realpath >/dev/null 2>&1; then
-    realpath "$executable_path" && return 0
-  fi
+  case "$executable_path" in
+    /*)
+      printf '%s\n' "$executable_path"
+      return 0
+      ;;
+  esac
 
-  if command -v readlink >/dev/null 2>&1; then
-    readlink -f "$executable_path" && return 0
-  fi
-
-  executable_dir="$(dirname -- "$executable_path")"
-  executable_base="$(basename -- "$executable_path")"
+  executable_dir="${executable_path%/*}"
+  executable_base="${executable_path##*/}"
+  [ "$executable_dir" != "$executable_path" ] || executable_dir="."
   (
     cd -P -- "$executable_dir"
     printf '%s/%s\n' "$(pwd -P)" "$executable_base"
@@ -729,14 +905,13 @@ plan_dependencies() {
 
   has_cmd curl || add_runtime_install_package curl
   has_cmd 7z || add_runtime_install_package 7zip
-  has_cmd electron || add_runtime_install_package electron
+  has_preferred_electron_runtime || add_runtime_install_package electron41
 
-  # Native module installation/rebuild still requires Arch system build packages.
-  # Keep runtime capabilities command-first, but ensure these packages through the
-  # selected package backend (`--needed` makes already-installed packages safe).
-  add_build_install_package python
-  add_build_install_package base-devel
-  add_build_install_package git
+  # Native module installation/rebuild requires these Arch build packages, but
+  # do not request root when pacman already reports them installed.
+  add_build_package_if_missing python
+  add_build_package_if_missing base-devel
+  add_build_package_if_missing git
 
   if ! has_cmd node; then
     if [ "$OMARCHY_STATUS" = "present" ]; then
@@ -762,10 +937,12 @@ select_dependency_install_command() {
     return 0
   fi
 
-  if [ "$OMARCHY_STATUS" = "present" ] && has_cmd omarchy-pkg-add; then
+  if ! running_as_root; then
+    echo "sudo bash ./install-codex-omarchy.sh"
+  elif [ "$OMARCHY_STATUS" = "present" ] && has_cmd omarchy-pkg-add; then
     echo "omarchy-pkg-add $(join_words "${INSTALL_PACKAGES[@]}")"
   else
-    echo "sudo pacman -S --needed $(join_words "${INSTALL_PACKAGES[@]}")"
+    echo "pacman -S --needed $(join_words "${INSTALL_PACKAGES[@]}")"
   fi
 }
 
@@ -826,7 +1003,12 @@ handle_dependency_plan() {
     exit 1
   fi
 
+  ensure_root_for_dependency_install
+
   if [ "$OMARCHY_STATUS" = "present" ] && has_cmd omarchy-pkg-add; then
+    echo
+    echo "Refreshing package databases before dependency installation: pacman -Syy --noconfirm"
+    pacman -Syy --noconfirm
     echo
     echo "Installing dependencies through Omarchy package helper: omarchy-pkg-add $(join_words "${INSTALL_PACKAGES[@]}")"
     omarchy-pkg-add "${INSTALL_PACKAGES[@]}"
@@ -837,8 +1019,10 @@ handle_dependency_plan() {
       exit 1
     fi
     echo
-    echo "Installing dependencies with pacman: sudo pacman -S --needed $(join_words "${INSTALL_PACKAGES[@]}")"
-    sudo pacman -S --needed "${INSTALL_PACKAGES[@]}"
+    echo "Refreshing package databases before dependency installation: pacman -Syy --noconfirm"
+    pacman -Syy --noconfirm
+    echo "Installing dependencies with pacman: pacman -S --noconfirm --needed $(join_words "${INSTALL_PACKAGES[@]}")"
+    pacman -S --noconfirm --needed "${INSTALL_PACKAGES[@]}"
     hash -r
   fi
 }
@@ -865,12 +1049,12 @@ fi
 
 OMARCHY_STATUS="absent"
 OMARCHY_VERSION="unavailable"
-if command -v omarchy >/dev/null 2>&1; then
-  OMARCHY_STATUS="present"
-  OMARCHY_VERSION="$(omarchy --version 2>/dev/null || omarchy version 2>/dev/null || echo unavailable)"
-elif command -v omarchy-version >/dev/null 2>&1; then
+if command -v omarchy-version >/dev/null 2>&1; then
   OMARCHY_STATUS="present"
   OMARCHY_VERSION="$(omarchy-version 2>/dev/null || echo unavailable)"
+elif command -v omarchy >/dev/null 2>&1; then
+  OMARCHY_STATUS="present"
+  OMARCHY_VERSION="$(omarchy --version 2>/dev/null || omarchy version 2>/dev/null || echo unavailable)"
 fi
 OMARCHY_VERSION="${OMARCHY_VERSION%%$'\n'*}"
 [ -n "$OMARCHY_VERSION" ] || OMARCHY_VERSION="unavailable"
@@ -884,7 +1068,7 @@ echo "Omarchy version: $OMARCHY_VERSION"
 
 echo
 echo "Command check:"
-for cmd in pacman curl 7z node pnpm electron; do
+for cmd in pacman curl 7z node pnpm electron electron41; do
   if command -v "$cmd" >/dev/null 2>&1; then
     echo "  - $cmd: OK ($(command -v "$cmd"))"
   else
@@ -954,8 +1138,8 @@ if ! command -v pnpm >/dev/null 2>&1; then
   echo "pnpm is still missing after dependency handling." >&2
   exit 1
 fi
-if ! command -v electron >/dev/null 2>&1; then
-  echo "electron is still missing after dependency handling." >&2
+if ! find_compatible_electron_bin >/dev/null; then
+  echo "A compatible Electron binary is still missing after dependency handling. Install package: electron41" >&2
   exit 1
 fi
 if ! command -v 7z >/dev/null 2>&1; then
@@ -969,15 +1153,24 @@ if command -v npm >/dev/null 2>&1; then
 else
   echo "npm: diagnostic only (missing)"
 fi
-ELECTRON_BIN_INTERNAL="$(absolute_executable_path "$(command -v electron)")"
-"$ELECTRON_BIN_INTERNAL" --version || true
+ELECTRON_BIN_INTERNAL="$(find_compatible_electron_bin)"
+print_electron_version "$ELECTRON_BIN_INTERNAL" || true
 pnpm -v
 
 # Absolute path to the pnpm binary
 PNPM_BIN="$(command -v pnpm)"
 
-# Set PNPM_HOME so global binaries have a predictable location
-export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
+# Set PNPM_HOME so global binaries have a predictable per-user location. Avoid
+# leaking an inherited PNPM_HOME from a different HOME into sudo/test runs.
+if [ -z "${PNPM_HOME:-}" ]; then
+  PNPM_HOME="$HOME/.local/share/pnpm"
+else
+  case "$PNPM_HOME" in
+    "$HOME"/*) : ;;
+    *) PNPM_HOME="$HOME/.local/share/pnpm" ;;
+  esac
+fi
+export PNPM_HOME
 mkdir -p "$PNPM_HOME"
 
 echo
@@ -1032,7 +1225,7 @@ cd "$ROOT_APP_DIR/app_asar"
 
 echo
 echo "Reading Electron version..."
-ELECTRON_VERSION=$("$ELECTRON_BIN_INTERNAL" --version | tr -d 'v' || true)
+ELECTRON_VERSION="$(read_electron_version "$ELECTRON_BIN_INTERNAL")"
 
 if [ -z "${ELECTRON_VERSION:-}" ]; then
   echo "Could not read the Electron version. Check that electron is installed correctly." >&2
@@ -1063,6 +1256,11 @@ cat > package.json <<EOF
   "version": "1.0.0",
   "private": true
 }
+EOF
+# Keep pnpm from walking up to a user-level workspace (for example
+# ~/pnpm-workspace.yaml) and installing native-build dependencies there.
+cat > pnpm-workspace.yaml <<EOF
+packages: []
 EOF
 
 pnpm add "better-sqlite3@$BSQL_VERSION" "node-pty@$NODE_PTY_VERSION"

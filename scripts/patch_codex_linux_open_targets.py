@@ -92,7 +92,48 @@ REPLACEMENT_V2 = (
     "var vE=__codexOmarchyLinuxOpenTargets(_E(process.platform)),yE=OE(vE),bE=new Set(vE.filter(e=>e.kind===`editor`).map(e=>e.id)),xE=null,SE=null;"
 )
 
-REPLACEMENTS = ((ANCHOR_V2, REPLACEMENT_V2), (ANCHOR_V1, REPLACEMENT_V1))
+ANCHOR_V3 = (
+    "var xE=bE(process.platform),SE=jE(xE),CE=new Set(xE.filter(e=>e.kind===`editor`).map(e=>e.id)),wE=null,TE=null;"
+)
+REPLACEMENT_V3 = (
+    "/* Codex-App-Omarchy linux-open-targets patch */"
+    "function __codexOmarchyLinuxOpenTargets(x){"
+    "if(process.platform!==`linux`)return x;"
+    "let t=x.slice(),n=new Set(t.map(e=>e.id)),r=e=>{for(let t of e){let e=fm(t);if(e)return e}return null},"
+    "a=(e,i,a,o,s=gw,c=!0)=>{n.has(e)||(t.push({id:e,label:i,icon:a,kind:`editor`,detect:()=>r(o),args:s,supportsSsh:c}),n.add(e))},"
+    "o=(e,t,n,r)=>a(e,t,n,r,e=>[e],!1);"
+    "function s(t,n,r,i,a){return r!=null&&e.zt(r)&&(i!=null||a!=null)?_w({hostConfig:r,location:n,remotePath:a,remoteWorkspaceRoot:i}):gw(t,n)}"
+    "function c(e,t,n,r){let i=r?[`+call cursor(${r.line},${r.column})`,n]:[n],a=e.split(/[\\/]/).pop();return a===`wezterm`?[`start`,`--`,t,...i]:a===`gnome-terminal`?[`--`,t,...i]:[`-e`,t,...i]}"
+    "let l=[`alacritty`,`ghostty`,`kitty`,`wezterm`,`foot`,`gnome-terminal`,`konsole`,`xterm`],u=()=>r(l),d=(e,i,a)=>{n.has(e)||(t.push({id:e,label:i,icon:`apps/vscode.png`,kind:`editor`,detect:()=>{let e=r(a);return e&&u()?e:null},open:async({command:e,path:t,location:n})=>{let r=u();if(!r)throw Error(`No terminal emulator is available for terminal editor target`);await gm(r,c(r,e,t,n))}}),n.add(e))};"
+    "a(`vscode`,`VS Code`,`apps/vscode.png`,[`code`],s,!0);"
+    "a(`vscodeInsiders`,`VS Code Insiders`,`apps/vscode-insiders.png`,[`code-insiders`],s,!0);"
+    "a(`vscodium`,`VSCodium`,`apps/vscode.png`,[`codium`],s,!0);"
+    "a(`cursor`,`Cursor`,`apps/cursor.png`,[`cursor`],s,!0);"
+    "a(`windsurf`,`Windsurf`,`apps/windsurf.png`,[`windsurf`],s,!0);"
+    "a(`antigravity`,`Antigravity`,`apps/antigravity.png`,[`antigravity`],s,!0);"
+    "a(`zed`,`Zed`,`apps/zed.png`,[`zed`,`zeditor`],gw,!1);"
+    "a(`sublimeText`,`Sublime Text`,`apps/sublime-text.png`,[`subl`,`sublime_text`],gw,!1);"
+    "o(`androidStudio`,`Android Studio`,`apps/android-studio.png`,[`studio`,`android-studio`]);"
+    "o(`intellij`,`IntelliJ IDEA`,`apps/intellij.png`,[`idea`,`intellij-idea-ultimate`,`intellij-idea-community`]);"
+    "o(`rider`,`Rider`,`apps/rider.png`,[`rider`]);"
+    "o(`goland`,`GoLand`,`apps/goland.png`,[`goland`]);"
+    "o(`rustrover`,`RustRover`,`apps/rustrover.png`,[`rustrover`]);"
+    "o(`pycharm`,`PyCharm`,`apps/pycharm.png`,[`pycharm`]);"
+    "o(`webstorm`,`WebStorm`,`apps/webstorm.svg`,[`webstorm`]);"
+    "o(`phpstorm`,`PhpStorm`,`apps/phpstorm.png`,[`phpstorm`]);"
+    "a(`kate`,`Kate`,`apps/vscode.png`,[`kate`],gw,!1);"
+    "a(`geany`,`Geany`,`apps/vscode.png`,[`geany`],gw,!1);"
+    "a(`gnomeTextEditor`,`GNOME Text Editor`,`apps/vscode.png`,[`gnome-text-editor`,`gedit`],gw,!1);"
+    "a(`emacs`,`Emacs`,`apps/vscode.png`,[`emacs`],gw,!1);"
+    "d(`neovim`,`Neovim`,[`nvim`]);"
+    "d(`vim`,`Vim`,[`vim`]);"
+    "d(`helix`,`Helix`,[`hx`,`helix`]);"
+    "n.has(`fileManager`)||(t.push({id:`fileManager`,label:`File Manager`,icon:`apps/file-explorer.png`,kind:`fileManager`,detect:()=>r([`xdg-open`,`nautilus`,`dolphin`,`thunar`,`nemo`,`pcmanfm`]),args:e=>[e]}),n.add(`fileManager`));"
+    "return t}"
+    "var xE=__codexOmarchyLinuxOpenTargets(bE(process.platform)),SE=jE(xE),CE=new Set(xE.filter(e=>e.kind===`editor`).map(e=>e.id)),wE=null,TE=null;"
+)
+
+REPLACEMENTS = ((ANCHOR_V3, REPLACEMENT_V3), (ANCHOR_V2, REPLACEMENT_V2), (ANCHOR_V1, REPLACEMENT_V1))
 
 
 def find_main_bundles(app_asar: pathlib.Path) -> list[pathlib.Path]:

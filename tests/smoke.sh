@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 installer="$repo_root/install-codex-omarchy.sh"
+bootstrap="$repo_root/bootstrap.sh"
 readme="$repo_root/README.md"
 linux_open_targets_patcher="$repo_root/scripts/patch_codex_linux_open_targets.py"
 linux_remote_control_visibility_patcher="$repo_root/scripts/patch_codex_linux_remote_control_visibility.py"
@@ -13,10 +14,12 @@ fail() {
 }
 
 [ -f "$installer" ] || fail "canonical installer install-codex-omarchy.sh is missing"
+[ -f "$bootstrap" ] || fail "one-line bootstrap bootstrap.sh is missing"
 [ -f "$linux_open_targets_patcher" ] || fail "Linux open-target patcher is missing"
 [ -f "$linux_remote_control_visibility_patcher" ] || fail "Linux remote-control visibility patcher is missing"
 
 bash -n "$installer"
+bash -n "$bootstrap"
 python3 -m py_compile "$linux_open_targets_patcher"
 python3 -m py_compile "$linux_remote_control_visibility_patcher"
 
@@ -24,7 +27,13 @@ help_output="$(bash "$installer" --help)"
 [[ "$help_output" == *"install-codex-omarchy.sh"* ]] || fail "help output must mention canonical installer name"
 [[ "$help_output" == *"Omarchy"* ]] || fail "help output must describe Omarchy target"
 
+bootstrap_help_output="$(bash "$bootstrap" --help)"
+[[ "$bootstrap_help_output" == *"bootstrap.sh"* ]] || fail "bootstrap help output must mention bootstrap.sh"
+[[ "$bootstrap_help_output" == *"install-codex-omarchy.sh"* ]] || fail "bootstrap help output must mention delegated installer"
+
 grep -q 'install-codex-omarchy\.sh' "$readme" || fail "README must reference canonical installer name"
+grep -q 'bootstrap\.sh' "$readme" || fail "README must reference one-line bootstrap"
+grep -q 'raw.githubusercontent.com/Whamp/Codex-App-Omarchy/main/bootstrap\.sh' "$readme" || fail "README must document one-line bootstrap URL"
 
 for flag in \
   '--preflight-only' \

@@ -2,17 +2,32 @@
 
 Install the Codex macOS desktop app on Omarchy x86_64 Linux.
 
-This repo contains only the installer. The installer downloads the Codex DMG, prepares it for Linux, creates a terminal launcher, and adds Codex to the Omarchy menu by default.
+The project goal is a one-line Omarchy install path with practical feature parity to the macOS Codex desktop app. The installer downloads the Codex DMG, prepares it for Linux, creates a terminal launcher, and adds Codex to the Omarchy menu by default.
 
 Canonical installer: `install-codex-omarchy.sh`.
+One-line bootstrap: `bootstrap.sh`.
 
 ## Quick start
+
+One-line install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Whamp/Codex-App-Omarchy/main/bootstrap.sh | sudo bash
+```
+
+One-line preflight without changing your system:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Whamp/Codex-App-Omarchy/main/bootstrap.sh | bash -s -- --preflight-only
+```
+
+Local checkout install:
 
 ```bash
 git clone https://github.com/Whamp/Codex-App-Omarchy.git
 cd Codex-App-Omarchy
 bash ./install-codex-omarchy.sh --preflight-only
-bash ./install-codex-omarchy.sh
+sudo bash ./install-codex-omarchy.sh
 ```
 
 After install, open Codex from the Omarchy menu or launcher. You do not need to start it from the script every time.
@@ -27,7 +42,7 @@ For terminal launches, use:
 
 - Omarchy on x86_64 Linux
 - Internet access for the Codex DMG and Node packages
-- `sudo` access if system packages must be installed
+- Run the install command with `sudo` so system packages can be installed automatically
 - `node` and `pnpm` on `PATH`, usually from Omarchy/mise
 
 Run preflight first to see what the installer would do without changing your system:
@@ -35,6 +50,14 @@ Run preflight first to see what the installer would do without changing your sys
 ```bash
 bash ./install-codex-omarchy.sh --preflight-only
 ```
+
+Then run the installer with sudo:
+
+```bash
+sudo bash ./install-codex-omarchy.sh
+```
+
+When launched with `sudo`, the installer targets the invoking user's home directory, not `/root`.
 
 Preflight checks the platform, commands, dependency plan, and planned actions. It does not install packages, download, extract, rebuild, generate launchers, change Codex appearance defaults, or change desktop integration.
 

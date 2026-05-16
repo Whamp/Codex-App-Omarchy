@@ -87,7 +87,14 @@ else
 fi
 '
 make_fake "$fakebin" electron '
-if [ "${1:-}" = "--version" ]; then
+if [ "${CODEX_FAKE_ELECTRON_ROOT_NEEDS_NO_SANDBOX:-0}" = "1" ] && [ "${1:-}" = "--version" ]; then
+  echo "Running as root without --no-sandbox is not supported" >&2
+  exit 133
+elif [ "${1:-}" = "--version" ]; then
+  echo "electron $*" >>"$FAKE_LOG"
+  echo "v37.2.3"
+elif [ "${1:-}" = "--no-sandbox" ] && [ "${2:-}" = "--version" ]; then
+  echo "electron $*" >>"$FAKE_LOG"
   echo "v37.2.3"
 else
   echo "electron $*" >>"$FAKE_LOG"
@@ -164,6 +171,7 @@ run_installer "$success_home" || fail "installer should succeed when native rebu
 assert_file_contains "$log" 'Reading Electron version'
 assert_file_contains "$log" 'Electron version: 37.2.3'
 assert_file_contains "$log" 'pnpm add better-sqlite3@12.5.1 node-pty@1.1.0'
+assert_file_contains "$success_home/apps/codex-port/_native-build/pnpm-workspace.yaml" 'packages: []'
 assert_file_contains "$log" 'pnpm dlx @electron/rebuild -v 37.2.3 -f -w better-sqlite3,node-pty'
 assert_file_contains "$log" 'Reading the node-pty version from the Codex app'
 assert_file_contains "$log" 'node-pty was copied into app_asar/node_modules.'
@@ -181,6 +189,15 @@ fi
 [ -f "$success_home/apps/codex-port/app_asar/node_modules/node-pty/pty.node" ] || fail "rebuilt node-pty native file was not copied into app_asar"
 [ -f "$success_home/apps/codex-port/app_asar/node_modules/objc-js/prebuilds/darwin-x64/node.napi.node" ] || fail "fixture should include ignored Darwin prebuild"
 [ -f "$success_home/apps/codex-port/app_asar/node_modules/node-pty/prebuilds/darwin-x64/pty.node" ] || fail "fixture should include ignored rebuilt Darwin prebuild"
+
+root_home="$tmp/root-home"
+log="$tmp/root.log"
+mkdir -p "$root_home"
+: > "$log"
+CODEX_OMARCHY_TEST_ASSUME_ROOT=1 CODEX_FAKE_ELECTRON_ROOT_NEEDS_NO_SANDBOX=1 run_installer "$root_home" || fail "installer should read Electron version with --no-sandbox when running as root"
+assert_file_contains "$log" 'Electron version: 37.2.3'
+assert_file_contains "$log" 'electron --no-sandbox --version'
+assert_file_not_contains "$log" 'Could not read the Electron version'
 
 macho_home="$tmp/macho-home"
 log="$tmp/macho.log"

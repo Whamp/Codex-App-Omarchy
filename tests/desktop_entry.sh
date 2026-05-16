@@ -249,6 +249,6 @@ assert_file_not_contains "$special_log" "BROAD_REFRESH"
 assert_file_not_contains "$special_log" "BROAD_CONFIG_REFRESH"
 
 assert_file_not_contains "$default_log" "BROAD_CONFIG_REFRESH"
-assert_file_contains "$default_log" "omarchy-pkg-add python base-devel git"
+assert_file_not_contains "$default_log" "omarchy-pkg-add"
 
 echo "Desktop entry verification passed."

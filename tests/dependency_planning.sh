@@ -66,9 +66,9 @@ for cmd in pacman curl 7z node pnpm electron omarchy omarchy-pkg-add; do
 done
 make_fake_cmd "$all_bin" npm "echo npm-present"
 all_output="$(run_installer "$all_bin" "$all_home" --preflight-only)"
-assert_contains "$all_output" "Required system/build packages: python base-devel git"
-assert_contains "$all_output" "Planned package install command: omarchy-pkg-add python base-devel git"
+assert_contains "$all_output" "Dependency plan: all command-first dependencies are already satisfied."
 assert_contains "$all_output" "npm: diagnostic only ($all_bin/npm)"
+assert_not_contains "$all_output" "Planned package install command"
 assert_not_contains "$all_output" "sudo pacman -S"
 assert_not_contains "$all_output" "nodejs"
 assert_not_contains "$all_output" "pnpm (Arch package)"
@@ -106,8 +106,8 @@ for cmd in pacman curl electron; do
 done
 plain_js_output="$(run_installer "$plain_missing_js_bin" "$plain_missing_js_home" --preflight-only)"
 assert_contains "$plain_js_output" "Missing runtime dependencies: 7zip nodejs pnpm"
-assert_contains "$plain_js_output" "Required system/build packages: python base-devel git"
-assert_contains "$plain_js_output" "Planned package install command: sudo pacman -S --needed 7zip nodejs pnpm python base-devel git"
+assert_contains "$plain_js_output" "Planned package install command: sudo bash ./install-codex-omarchy.sh"
+assert_not_contains "$plain_js_output" "Required system/build packages"
 assert_not_contains "$plain_js_output" "npm -g"
 
 # Omarchy package helper is selected when available for installable system packages.
@@ -119,9 +119,49 @@ for cmd in pacman curl node pnpm electron omarchy omarchy-pkg-add; do
 done
 omarchy_pkg_output="$(run_installer "$omarchy_pkg_bin" "$omarchy_pkg_home" --preflight-only)"
 assert_contains "$omarchy_pkg_output" "Missing runtime dependencies: 7zip"
-assert_contains "$omarchy_pkg_output" "Required system/build packages: python base-devel git"
-assert_contains "$omarchy_pkg_output" "Planned package install command: omarchy-pkg-add 7zip python base-devel git"
-assert_not_contains "$omarchy_pkg_output" "sudo pacman -S --needed 7zip python base-devel git"
+assert_contains "$omarchy_pkg_output" "Planned package install command: sudo bash ./install-codex-omarchy.sh"
+assert_not_contains "$omarchy_pkg_output" "Required system/build packages"
+assert_not_contains "$omarchy_pkg_output" "sudo pacman -S --needed 7zip"
+
+# A real install with missing packages must be run through sudo instead of trying
+# to prompt from a non-interactive shell.
+sudo_required_bin="$tmp/sudo-required/bin"
+sudo_required_home="$tmp/sudo-required/home"
+mkdir -p "$sudo_required_bin" "$sudo_required_home"
+for cmd in pacman curl node pnpm electron omarchy omarchy-pkg-add; do
+  make_fake_cmd "$sudo_required_bin" "$cmd"
+done
+assert_fails sudo_required_output run_installer "$sudo_required_bin" "$sudo_required_home"
+assert_contains "$sudo_required_output" "Dependency installation requires root."
+assert_contains "$sudo_required_output" "Re-run the installer with sudo so it can install: 7zip"
+assert_contains "$sudo_required_output" "Example: sudo bash ./install-codex-omarchy.sh"
+assert_not_contains "$sudo_required_output" "Installing dependencies through Omarchy package helper"
+
+# On Omarchy, root dependency installs refresh stale package databases before
+# using the Omarchy package helper. This avoids 404s from old pacman DB entries.
+omarchy_root_bin="$tmp/omarchy-root/bin"
+omarchy_root_home="$tmp/omarchy-root/home"
+omarchy_root_log="$tmp/omarchy-root/log"
+mkdir -p "$omarchy_root_bin" "$omarchy_root_home"
+for cmd in curl node pnpm electron omarchy; do
+  make_fake_cmd "$omarchy_root_bin" "$cmd"
+done
+make_fake_cmd "$omarchy_root_bin" pacman 'echo "pacman $*" >>"$FAKE_LOG"
+if [ "${1:-}" = "-Q" ]; then exit 1; fi
+exit 0'
+make_fake_cmd "$omarchy_root_bin" omarchy-pkg-add 'echo "omarchy-pkg-add $*" >>"$FAKE_LOG"; exit 7'
+run_omarchy_root_installer() {
+  FAKE_LOG="$omarchy_root_log" CODEX_OMARCHY_TEST_ASSUME_ROOT=1 run_installer "$omarchy_root_bin" "$omarchy_root_home"
+}
+assert_fails omarchy_root_output run_omarchy_root_installer
+assert_contains "$omarchy_root_output" "Refreshing package databases before dependency installation: pacman -Syy --noconfirm"
+assert_file_contains() {
+  local file="$1"
+  local needle="$2"
+  grep -Fq -- "$needle" "$file" || fail "expected $file to contain: $needle"
+}
+assert_file_contains "$omarchy_root_log" "pacman -Syy --noconfirm"
+assert_file_contains "$omarchy_root_log" "omarchy-pkg-add 7zip python base-devel git"
 
 # --no-install-deps reports missing dependencies and exits before privileged installation.
 no_install_bin="$tmp/no-install/bin"
@@ -133,8 +173,8 @@ done
 assert_fails no_install_output run_installer "$no_install_bin" "$no_install_home" --no-install-deps
 assert_contains "$no_install_output" "--no-install-deps was set"
 assert_contains "$no_install_output" "Missing runtime dependencies: 7zip"
-assert_contains "$no_install_output" "Required system/build packages: python base-devel git"
-assert_contains "$no_install_output" "Packages not installed: 7zip python base-devel git"
+assert_not_contains "$no_install_output" "Required system/build packages"
+assert_contains "$no_install_output" "Packages not installed: 7zip"
 assert_not_contains "$no_install_output" "Installing dependencies"
 assert_not_contains "$no_install_output" "Downloading Codex.dmg"
 [[ ! -e "$no_install_home/Downloads/codex-macos" ]] || fail "--no-install-deps must exit before download setup"
